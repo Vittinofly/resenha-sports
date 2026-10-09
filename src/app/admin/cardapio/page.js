@@ -2,30 +2,24 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Plus, Pencil, Trash2, Upload, Loader2, Check, X } from 'lucide-react';
-
-const CATEGORIAS_PADRAO = ['Espetinhos', 'Porções', 'Bebidas', 'Sobremesas'];
+import { Utensils, Plus, Trash2, CheckCircle2, XCircle, DollarSign, Tag } from 'lucide-react';
 
 export default function AdminCardapioPage() {
-  const [cardapio, setCardapio] = useState([]);
+  const [produtos, setProdutos] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const [mostrarForm, setMostrarForm] = useState(false);
-  const [itemEditandoId, setItemEditandoId] = useState(null);
+  const [salvando, setSalvando] = useState(false);
 
-  const [formItem, setFormItem] = useState({
+  const [novoItem, setNovoItem] = useState({
     nome: '',
-    categoria: 'Espetinhos',
-    novaCategoria: '',
-    descricao: '',
+    categoria: 'Bebidas',
     preco: '',
-    imagem_url: '',
+    disponivel: true,
   });
 
   const carregarCardapio = async () => {
     setLoading(true);
     const { data } = await supabase.from('cardapio').select('*').order('categoria', { ascending: true });
-    if (data) setCardapio(data);
+    if (data) setProdutos(data);
     setLoading(false);
   };
 
@@ -33,212 +27,165 @@ export default function AdminCardapioPage() {
     carregarCardapio();
   }, []);
 
-  const categoriasUnicas = Array.from(
-    new Set([...CATEGORIAS_PADRAO, ...cardapio.map((i) => i.categoria).filter(Boolean)])
-  );
-
-  const resetarFormulario = () => {
-    setFormItem({ nome: '', categoria: 'Espetinhos', novaCategoria: '', descricao: '', preco: '', imagem_url: '' });
-    setItemEditandoId(null);
-    setMostrarForm(false);
-  };
-
-  const handleFileUpload = async (e) => {
-    try {
-      setUploading(true);
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage.from('produtos').upload(fileName, file);
-      if (uploadError) throw uploadError;
-
-      const { data } = supabase.storage.from('produtos').getPublicUrl(fileName);
-      setFormItem((prev) => ({ ...prev, imagem_url: data.publicUrl }));
-    } catch (err) {
-      alert('Erro no upload: ' + err.message);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleSalvar = async (e) => {
+  const handleCriarProduto = async (e) => {
     e.preventDefault();
+    if (!novoItem.nome || !novoItem.preco) return;
 
-    const catFinal = formItem.categoria === '__NOVA__' ? formItem.novaCategoria.trim() : formItem.categoria.trim();
+    setSalvando(true);
+    const { error } = await supabase.from('cardapio').insert([
+      {
+        nome: novoItem.nome.trim(),
+        categoria: novoItem.categoria,
+        preco: parseFloat(novoItem.preco.replace(',', '.')),
+        disponivel: novoItem.disponivel,
+      },
+    ]);
 
-    const dados = {
-      nome: formItem.nome.trim(),
-      categoria: catFinal,
-      descricao: formItem.descricao.trim(),
-      preco: parseFloat(formItem.preco.toString().replace(',', '.')),
-      imagem_url: formItem.imagem_url.trim(),
-    };
+    setSalvando(false);
 
-    if (itemEditandoId) {
-      await supabase.from('cardapio').update(dados).eq('id', itemEditandoId);
+    if (error) {
+      alert('Erro ao adicionar item: ' + error.message);
     } else {
-      await supabase.from('cardapio').insert([{ ...dados, disponivel: true }]);
-    }
-
-    resetarFormulario();
-    carregarCardapio();
-  };
-
-  const handleEditar = (item) => {
-    const catExiste = categoriasUnicas.includes(item.categoria);
-    setFormItem({
-      nome: item.nome || '',
-      categoria: catExiste ? item.categoria : '__NOVA__',
-      novaCategoria: catExiste ? '' : item.categoria,
-      descricao: item.descricao || '',
-      preco: item.preco ? item.preco.toString() : '',
-      imagem_url: item.imagem_url || '',
-    });
-    setItemEditandoId(item.id);
-    setMostrarForm(true);
-  };
-
-  const handleRemover = async (id, nome) => {
-    if (confirm(`Remover "${nome}" do cardápio?`)) {
-      await supabase.from('cardapio').delete().eq('id', id);
+      setNovoItem({ nome: '', categoria: 'Bebidas', preco: '', disponivel: true });
       carregarCardapio();
     }
   };
 
-  return (
-    <div className="space-y-6">
-      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex justify-between items-center">
-        <div>
-          <h1 className="text-xl font-black text-slate-900">Gestão de Cardápio</h1>
-          <p className="text-xs text-slate-500 mt-1">Adicione produtos e suba fotos diretamente para o storage.</p>
-        </div>
+  const toggleDisponibilidade = async (id, statusAtual) => {
+    await supabase.from('cardapio').update({ disponivel: !statusAtual }).eq('id', id);
+    carregarCardapio();
+  };
 
-        <button
-          onClick={() => {
-            if (mostrarForm) resetarFormulario();
-            else {
-              resetarFormulario();
-              setMostrarForm(true);
-            }
-          }}
-          className="bg-red-600 text-white font-bold px-4 py-2.5 rounded-2xl text-xs hover:bg-red-700 transition flex items-center gap-1.5 shadow-sm"
-        >
-          {mostrarForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-          {mostrarForm ? 'Fechar' : 'Novo Produto'}
-        </button>
+  const deletarProduto = async (id) => {
+    if (!confirm('Tem certeza que deseja excluir este item do cardápio?')) return;
+    await supabase.from('cardapio').delete().eq('id', id);
+    carregarCardapio();
+  };
+
+  return (
+    <div className="space-y-6 font-sans text-slate-900">
+      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-black flex items-center gap-2">
+            <Utensils className="w-6 h-6 text-red-600" /> Gestão do Cardápio
+          </h1>
+          <p className="text-xs text-slate-500 mt-0.5">Gerencie os itens oferecidos no pré-pedido de mesas e quiosques.</p>
+        </div>
       </div>
 
-      {mostrarForm && (
-        <div className="bg-white p-6 rounded-3xl border-2 border-red-500/40 shadow-md">
-          <form onSubmit={handleSalvar} className="space-y-4">
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nome do Produto *</label>
-                <input
-                  type="text" required value={formItem.nome}
-                  onChange={(e) => setFormItem({ ...formItem, nome: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm"
-                />
-              </div>
+      {/* FORMULÁRIO DE CADASTRO DE ITEM */}
+      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+        <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-1.5">
+          <Plus className="w-4 h-4 text-red-600" /> Adicionar Novo Item
+        </h2>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Preço (R$) *</label>
-                <input
-                  type="text" required value={formItem.preco}
-                  onChange={(e) => setFormItem({ ...formItem, preco: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm"
-                />
-              </div>
+        <form onSubmit={handleCriarProduto} className="grid sm:grid-cols-4 gap-4 items-end">
+          <div className="sm:col-span-2">
+            <label className="block text-[11px] font-extrabold text-slate-600 uppercase mb-1">Nome do Item *</label>
+            <input
+              type="text"
+              required
+              placeholder="Ex: Cerveja Heineken Long Neck"
+              value={novoItem.nome}
+              onChange={(e) => setNovoItem({ ...novoItem, nome: e.target.value })}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-red-600"
+            />
+          </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Categoria *</label>
-                <select
-                  value={formItem.categoria}
-                  onChange={(e) => setFormItem({ ...formItem, categoria: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm"
-                >
-                  {categoriasUnicas.map((c) => <option key={c} value={c}>{c}</option>)}
-                  <option value="__NOVA__">+ Criar Nova Categoria...</option>
-                </select>
-              </div>
+          <div>
+            <label className="block text-[11px] font-extrabold text-slate-600 uppercase mb-1">Categoria</label>
+            <select
+              value={novoItem.categoria}
+              onChange={(e) => setNovoItem({ ...novoItem, categoria: e.target.value })}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-red-600"
+            >
+              <option value="Bebidas">Bebidas</option>
+              <option value="Porções">Porções & Petiscos</option>
+              <option value="Espetinhos">Espetinhos</option>
+              <option value="Sobremesas">Sobremesas</option>
+            </select>
+          </div>
 
-              {formItem.categoria === '__NOVA__' && (
-                <div>
-                  <label className="block text-xs font-bold text-red-600 uppercase mb-1">Nome da Nova Categoria *</label>
-                  <input
-                    type="text" required value={formItem.novaCategoria}
-                    onChange={(e) => setFormItem({ ...formItem, novaCategoria: e.target.value })}
-                    className="w-full bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 text-sm"
-                  />
-                </div>
-              )}
+          <div>
+            <label className="block text-[11px] font-extrabold text-slate-600 uppercase mb-1">Preço (R$) *</label>
+            <input
+              type="text"
+              required
+              placeholder="12,00"
+              value={novoItem.preco}
+              onChange={(e) => setNovoItem({ ...novoItem, preco: e.target.value })}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-red-600"
+            />
+          </div>
 
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Foto do Produto</label>
-                <div className="flex gap-3 items-center">
-                  <label className="flex items-center gap-2 bg-slate-50 border border-slate-300 border-dashed rounded-xl p-2.5 cursor-pointer text-xs font-bold text-slate-700">
-                    {uploading ? <Loader2 className="w-4 h-4 animate-spin text-red-600" /> : <Upload className="w-4 h-4 text-red-600" />}
-                    <span>{uploading ? 'Carregando...' : 'Upload Foto'}</span>
-                    <input type="file" accept="image/*" onChange={handleFileUpload} disabled={uploading} className="hidden" />
-                  </label>
-                  <input
-                    type="url" placeholder="Ou cole a URL da imagem..." value={formItem.imagem_url}
-                    onChange={(e) => setFormItem({ ...formItem, imagem_url: e.target.value })}
-                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs"
-                  />
-                </div>
-                {formItem.imagem_url && (
-                  <div className="flex items-center gap-2 mt-2">
-                    <img src={formItem.imagem_url} alt="Preview" className="w-12 h-12 object-cover rounded-xl border" />
-                    <span className="text-xs text-emerald-600 font-bold flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Imagem Pronta</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Descrição</label>
-                <textarea
-                  rows="2" value={formItem.descricao}
-                  onChange={(e) => setFormItem({ ...formItem, descricao: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={resetarFormulario} className="px-4 py-2 bg-slate-100 rounded-xl text-xs font-bold text-slate-700">Cancelar</button>
-              <button type="submit" disabled={uploading} className="px-6 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700">Salvar</button>
-            </div>
-          </form>
-        </div>
-      )}
+          <div className="sm:col-span-4 flex justify-end">
+            <button
+              type="submit"
+              disabled={salvando}
+              className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-6 py-2.5 rounded-xl text-xs shadow-sm transition disabled:opacity-50"
+            >
+              {salvando ? 'Cadastrando...' : 'Cadastrar Item no Cardápio'}
+            </button>
+          </div>
+        </form>
+      </div>
 
       {/* LISTA DE PRODUTOS */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {loading ? <p className="text-xs text-slate-400">Carregando...</p> : cardapio.map((item) => (
-          <div key={item.id} className="bg-white border border-slate-200 rounded-3xl p-4 flex justify-between items-center shadow-sm">
-            <div className="flex items-center gap-3">
-              {item.imagem_url ? (
-                <img src={item.imagem_url} alt={item.nome} className="w-14 h-14 object-cover rounded-2xl" />
-              ) : (
-                <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center text-[10px] text-slate-400">Sem foto</div>
-              )}
-              <div>
-                <span className="text-[10px] font-bold uppercase text-red-600 bg-red-50 px-2 py-0.5 rounded-full">{item.categoria}</span>
-                <h3 className="font-extrabold text-sm text-slate-900 mt-1">{item.nome}</h3>
-                <p className="text-xs font-bold text-slate-700 mt-0.5">R$ {Number(item.preco).toFixed(2).replace('.', ',')}</p>
-              </div>
-            </div>
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-3">
+        <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-2">Itens Cadastrados</h2>
 
-            <div className="flex gap-1">
-              <button onClick={() => handleEditar(item)} className="p-2 text-slate-600 hover:bg-slate-100 rounded-xl"><Pencil className="w-4 h-4" /></button>
-              <button onClick={() => handleRemover(item.id, item.nome)} className="p-2 text-red-600 hover:bg-red-50 rounded-xl"><Trash2 className="w-4 h-4" /></button>
-            </div>
+        {loading ? (
+          <p className="text-xs text-slate-400 text-center py-6">Carregando cardápio...</p>
+        ) : produtos.length === 0 ? (
+          <p className="text-xs text-slate-500 py-6 text-center">Nenhum item cadastrado no cardápio.</p>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {produtos.map((item) => (
+              <div key={item.id} className="py-3 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <span className="bg-slate-100 text-slate-700 font-extrabold px-2.5 py-1 rounded-lg text-[10px] uppercase">
+                    {item.categoria}
+                  </span>
+                  <div>
+                    <p className="font-extrabold text-xs text-slate-900">{item.nome}</p>
+                    <p className="text-xs font-bold text-red-600">
+                      R$ {Number(item.preco).toFixed(2).replace('.', ',')}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => toggleDisponibilidade(item.id, item.disponivel)}
+                    className={`px-3 py-1.5 rounded-xl text-[11px] font-bold transition flex items-center gap-1 ${
+                      item.disponivel
+                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                    }`}
+                  >
+                    {item.disponivel ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Disponível
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="w-3.5 h-3.5 text-slate-400" /> Pausado
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => deletarProduto(item.id)}
+                    className="p-2 text-slate-400 hover:text-red-600 transition"
+                    title="Excluir item"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
+        )}
       </div>
     </div>
   );

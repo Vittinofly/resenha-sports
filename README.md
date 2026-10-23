@@ -78,6 +78,8 @@ A maneira mais fácil de implantar sua aplicação Next.js é usar a [Plataforma
 
 Consulte a [documentação de deploy do Next.js](https://nextjs.org/docs/app/building-your-application/deploying) para mais detalhes.
 
+
+
 ### Definição de projeto
 
 Este projeto é uma aplicação web desenvolvida com Next.js para funcionar como um portal digital de um espaço que combina esporte, restaurante e eventos. O objetivo principal é centralizar em um único lugar tudo o que o cliente e a equipe precisam: cardápio, reservas de quadras, agendamento de mesas e aluguel de quiosques para festas e eventos privados.

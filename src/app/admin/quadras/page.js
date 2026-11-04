@@ -1,710 +1,319 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { ChevronLeft, ChevronRight, Loader2, Plus, CalendarDays, Clock, CheckCircle2, Gauge } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import {
-  Calendar,
-  Clock,
-  User,
-  Phone,
-  CheckCircle2,
-  XCircle,
-  AlertCircle,
-  Plus,
-  MessageSquare,
-  Info,
-  X,
-  Check,
-  Dumbbell,
-  FileText
-} from 'lucide-react';
+import { useHoje, useMinutoAtual } from '@/lib/hooks';
+import { buscarReservas } from '@/lib/admin';
+import { QUADRAS, HORARIOS_QUADRA, DURACOES, ABERTURA_QUADRAS, FECHAMENTO_QUADRAS } from '@/lib/config';
+import { ERRO_CONFLITO_DB } from '@/lib/reservas';
+import { apenasDigitos, formatarDataLonga, formatarTelefone, horaParaMinutos, intervalosSobrepoem, minutosParaHora, somarDias, telefoneValido, hhmm } from '@/lib/formatadores';
+import { useFeedback } from '@/components/feedback';
+import { useAdmin } from '@/components/admin/shell';
+import { CabecalhoPagina, Indicador } from '@/components/admin/ui';
+import ModalReserva from '@/components/admin/modal-reserva';
+import Modal from '@/components/modal';
 
-const QUADRAS = [
-  'Quadra 1 - Beach Tennis / Futevôlei',
-  'Quadra 2 - Beach Tennis / Futevôlei',
-  'Quadra 3 - Padel',
-];
+const ALTURA_HORA = 56; // px por linha da grade
+const CORES_STATUS = {
+  confirmado: 'bg-emerald-50 border-emerald-300 text-emerald-950 hover:bg-emerald-100',
+  pendente: 'bg-amber-50 border-amber-300 text-amber-950 hover:bg-amber-100',
+  agendada: 'bg-amber-50 border-amber-300 text-amber-950 hover:bg-amber-100',
+  concluido: 'bg-slate-100 border-slate-300 text-slate-600 hover:bg-slate-200',
+};
 
-const HORARIOS_DIA = Array.from({ length: 16 }, (_, i) => {
-  const hora = i + 7;
-  return `${hora < 10 ? '0' : ''}${hora}:00`;
+function LerDataDaUrl({ aoLer }) {
+  const data = useSearchParams().get('data');
+  useEffect(() => {
+    if (data && /^\d{4}-\d{2}-\d{2}$/.test(data)) aoLer(data);
+  }, [data, aoLer]);
+  return null;
+}
+
+const formVazio = (quadra, data, inicio) => ({
+  cliente_nome: '',
+  cliente_whatsapp: '',
+  quadra_nome: quadra,
+  data_reserva: data,
+  horario_inicio: inicio,
+  duracao: 1,
+  observacoes: '',
 });
 
-export default function AdminQuadrasUnificadoPage() {
-  const hojeStr = new Date().toISOString().split('T')[0];
-
-  const [dataSelecionada, setDataSelecionada] = useState(hojeStr);
+export default function AdminAgendaQuadrasPage() {
+  const hoje = useHoje();
+  const minutoAtual = useMinutoAtual();
+  const { toast } = useFeedback();
+  const { atualizarPendentes } = useAdmin();
+  const [dataEscolhida, setDataEscolhida] = useState('');
   const [reservas, setReservas] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  // Modais
-  const [modalNovoOpen, setModalNovoOpen] = useState(false);
-  const [modalDetalhesOpen, setModalDetalhesOpen] = useState(false);
-  const [reservaSelecionada, setReservaSelecionada] = useState(null);
-
-  // Formulário de Novo Agendamento Balcão/Telefone
-  const [formNovo, setFormNovo] = useState({
-    cliente_nome: '',
-    cliente_whatsapp: '',
-    quadra_nome: QUADRAS[0],
-    data_reserva: hojeStr,
-    horario_inicio: '08:00',
-    duracao_horas: 1,
-    observacoes: '',
-  });
-
-  const [observacaoEdicao, setObservacaoEdicao] = useState('');
+  const [carregando, setCarregando] = useState(true);
+  const [selecionada, setSelecionada] = useState(null);
+  const [form, setForm] = useState(null);
   const [salvando, setSalvando] = useState(false);
+  const [quadraMobile, setQuadraMobile] = useState(QUADRAS[0].nome);
 
-  // Carregar reservas da data selecionada
-  const carregarReservas = useCallback(async () => {
-    if (!dataSelecionada) return;
-    setLoading(true);
+  const data = dataEscolhida || hoje;
 
-    const { data, error } = await supabase
-      .from('reservas_quadras')
-      .select('*')
-      .eq('data_reserva', dataSelecionada)
-      .neq('status', 'cancelado')
-      .order('horario_inicio', { ascending: true });
-
-    if (!error && data) {
-      setReservas(data);
-    }
-    setLoading(false);
-  }, [dataSelecionada]);
+  const carregar = useCallback(async () => {
+    if (!data) return;
+    setCarregando(true);
+    const { reservas: lista, erro } = await buscarReservas({ tipos: ['quadras'], de: data, ate: data });
+    if (erro) toast('Erro ao carregar agenda: ' + erro.message, 'erro');
+    setReservas(lista.filter((r) => r.status !== 'cancelado'));
+    setCarregando(false);
+  }, [data, toast]);
 
   useEffect(() => {
-    if (!dataSelecionada) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga de dados ao trocar a data
+    carregar();
+    const id = setInterval(carregar, 60 * 1000);
+    return () => clearInterval(id);
+  }, [carregar]);
 
-    const timer = setTimeout(() => {
-      void carregarReservas();
-    }, 0);
-
-    return () => clearTimeout(timer);
-  }, [dataSelecionada, carregarReservas]);
-
-  // Atalhos de Data Rápida
-  const setDataHoje = () => {
-    const hojeStr = new Date().toISOString().split('T')[0];
-    setDataSelecionada(hojeStr);
+  const aoAtualizar = (nova) => {
+    setReservas((lista) => (nova.status === 'cancelado' ? lista.filter((r) => r.chave !== nova.chave) : lista.map((r) => (r.chave === nova.chave ? nova : r))));
+    atualizarPendentes();
   };
 
-  const setDataAmanha = () => {
-    const amanha = new Date();
-    amanha.setDate(amanha.getDate() + 1);
-    setDataSelecionada(amanha.toISOString().split('T')[0]);
-  };
+  const abrirNovo = (quadra = QUADRAS[0].nome, inicio = '08:00') => setForm(formVazio(quadra, data, inicio));
 
-  // Verifica qual reserva ocupa uma determinada hora na quadra
-  const getReservaNoSlot = (quadraNome, horaSlot) => {
-    const horaFimSlot = `${parseInt(horaSlot.split(':')[0]) + 1}:00`.padStart(5, '0');
-    return reservas.find(
-      (r) =>
-        r.quadra_nome === quadraNome &&
-        horaSlot < r.horario_fim &&
-        horaFimSlot > r.horario_inicio
-    );
-  };
-
-  // Abrir Modal de Novo Agendamento ao Clicar em Horário Livre
-  const handleAbrirNovoSlot = (quadraNome, horaSlot) => {
-    setFormNovo({
-      cliente_nome: '',
-      cliente_whatsapp: '',
-      quadra_nome: quadraNome,
-      data_reserva: dataSelecionada,
-      horario_inicio: horaSlot,
-      duracao_horas: 1,
-      observacoes: '',
-    });
-    setModalNovoOpen(true);
-  };
-
-  // Criar Agendamento Interno (Balcão/Telefone)
-  const handleCriarReservaBalcao = async (e) => {
+  const criarReserva = async (e) => {
     e.preventDefault();
+    if (!telefoneValido(form.cliente_whatsapp)) return toast('WhatsApp inválido (DDD + número).', 'erro');
+
+    const fim = minutosParaHora(horaParaMinutos(form.horario_inicio) + form.duracao * 60);
+    if (horaParaMinutos(fim) > FECHAMENTO_QUADRAS * 60) return toast(`O término não pode passar das ${FECHAMENTO_QUADRAS}:00.`, 'erro');
+
     setSalvando(true);
-
-    const hInic = parseInt(formNovo.horario_inicio.split(':')[0]);
-    const hFim = hInic + parseInt(formNovo.duracao_horas);
-
-    if (hFim > 23) {
-      alert('O horário de término não pode ultrapassar as 23:00.');
-      setSalvando(false);
-      return;
-    }
-
-    const horarioFimStr = `${hFim < 10 ? '0' : ''}${hFim}:00`;
-
-    // Checagem Anti-Overbooking
     const { data: existentes } = await supabase
       .from('reservas_quadras')
-      .select('*')
-      .eq('quadra_nome', formNovo.quadra_nome)
-      .eq('data_reserva', formNovo.data_reserva)
+      .select('horario_inicio, horario_fim, cliente_nome')
+      .eq('quadra_nome', form.quadra_nome)
+      .eq('data_reserva', form.data_reserva)
       .neq('status', 'cancelado');
 
-    const temConflito = existentes?.some(
-      (r) => formNovo.horario_inicio < r.horario_fim && horarioFimStr > r.horario_inicio
-    );
-
-    if (temConflito) {
-      alert('Aviso: Já existe um agendamento ocupando esse intervalo de horário!');
+    const conflito = existentes?.find((r) => intervalosSobrepoem(form.horario_inicio, fim, hhmm(r.horario_inicio), hhmm(r.horario_fim)));
+    if (conflito) {
       setSalvando(false);
-      return;
+      return toast(`Conflito com a reserva de ${conflito.cliente_nome} (${hhmm(conflito.horario_inicio)}–${hhmm(conflito.horario_fim)}).`, 'erro');
     }
 
     const { error } = await supabase.from('reservas_quadras').insert([
       {
-        cliente_nome: formNovo.cliente_nome.trim(),
-        cliente_whatsapp: formNovo.cliente_whatsapp.trim(),
-        quadra_nome: formNovo.quadra_nome,
-        data_reserva: formNovo.data_reserva,
-        horario_inicio: formNovo.horario_inicio,
-        horario_fim: horarioFimStr,
-        observacoes: formNovo.observacoes.trim(),
+        cliente_nome: form.cliente_nome.trim(),
+        cliente_whatsapp: form.cliente_whatsapp,
+        quadra_nome: form.quadra_nome,
+        data_reserva: form.data_reserva,
+        horario_inicio: form.horario_inicio,
+        horario_fim: fim,
+        observacoes: form.observacoes.trim(),
         status: 'confirmado',
       },
     ]);
-
     setSalvando(false);
 
-    if (error) {
-      alert('Erro ao agendar: ' + error.message);
-    } else {
-      setModalNovoOpen(false);
-      carregarReservas();
-    }
+    if (error) return toast(error.code === ERRO_CONFLITO_DB ? 'Esse horário acabou de ser ocupado.' : 'Erro ao agendar: ' + error.message, 'erro');
+    toast('Agendamento criado e confirmado.');
+    setForm(null);
+    if (form.data_reserva !== data) setDataEscolhida(form.data_reserva);
+    else carregar();
   };
 
-  // Abrir Modal de Detalhes da Reserva Existente
-  const handleAbrirDetalhes = (reserva) => {
-    setReservaSelecionada(reserva);
-    setObservacaoEdicao(reserva.observacoes || '');
-    setModalDetalhesOpen(true);
+  // Indicadores do dia
+  const confirmadas = reservas.filter((r) => r.status === 'confirmado').length;
+  const pendentes = reservas.filter((r) => r.status === 'pendente' || r.status === 'agendada').length;
+  const horasReservadas = reservas.reduce((acc, r) => acc + (horaParaMinutos(r.fim) - horaParaMinutos(r.inicio)) / 60, 0);
+  const horasTotais = QUADRAS.length * HORARIOS_QUADRA.length;
+
+  const linhaDe = (hora) => Math.floor(horaParaMinutos(hora) / 60) - ABERTURA_QUADRAS + 1;
+  const minutosAgoraNaGrade = data === hoje && minutoAtual >= ABERTURA_QUADRAS * 60 && minutoAtual < FECHAMENTO_QUADRAS * 60 ? minutoAtual - ABERTURA_QUADRAS * 60 : null;
+
+  const colunaQuadra = (quadra) => {
+    const daQuadra = reservas.filter((r) => r.quadra_nome === quadra.nome);
+    const ocupada = (hora) => daQuadra.some((r) => intervalosSobrepoem(hora, minutosParaHora(horaParaMinutos(hora) + 60), r.inicio, r.fim));
+    return (
+      <div className="relative grid" style={{ gridTemplateRows: `repeat(${HORARIOS_QUADRA.length}, ${ALTURA_HORA}px)` }}>
+        {HORARIOS_QUADRA.map((hora, i) =>
+          ocupada(hora) ? null : (
+            <button
+              key={hora}
+              onClick={() => abrirNovo(quadra.nome, hora)}
+              style={{ gridRow: i + 1 }}
+              className="group m-0.5 rounded-lg border border-dashed border-transparent hover:border-red-300 hover:bg-red-50/60 flex items-center justify-center text-[11px] font-bold text-transparent hover:text-red-600 transition"
+              aria-label={`Agendar ${quadra.curto} às ${hora}`}
+            >
+              <Plus className="w-3.5 h-3.5" /> {hora}
+            </button>
+          )
+        )}
+        {daQuadra.map((r) => {
+          const inicioLinha = Math.max(1, linhaDe(r.inicio));
+          const fimLinha = Math.min(HORARIOS_QUADRA.length + 1, Math.ceil(horaParaMinutos(r.fim) / 60) - ABERTURA_QUADRAS + 1);
+          return (
+            <button
+              key={r.chave}
+              onClick={() => setSelecionada(r)}
+              style={{ gridRow: `${inicioLinha} / ${Math.max(inicioLinha + 1, fimLinha)}` }}
+              className={`m-0.5 rounded-xl border-l-4 border p-2 text-left overflow-hidden transition ${CORES_STATUS[r.status] || CORES_STATUS.pendente}`}
+            >
+              <span className="block text-xs font-black truncate">{r.nome}</span>
+              <span className="block text-[11px] opacity-80 tabular-nums">{r.inicio}–{r.fim}</span>
+              {r.observacoes && <span className="block text-[10px] opacity-70 truncate mt-0.5">📝 {r.observacoes}</span>}
+            </button>
+          );
+        })}
+      </div>
+    );
   };
-
-  // Alternar Status (Pendente <-> Confirmado)
-  const handleAtualizarStatus = async (novoStatus) => {
-    if (!reservaSelecionada) return;
-    setSalvando(true);
-
-    const { error } = await supabase
-      .from('reservas_quadras')
-      .update({ status: novoStatus })
-      .eq('id', reservaSelecionada.id);
-
-    setSalvando(false);
-
-    if (error) {
-      alert('Erro ao atualizar status: ' + error.message);
-    } else {
-      setReservaSelecionada((prev) => ({ ...prev, status: novoStatus }));
-      carregarReservas();
-    }
-  };
-
-  // Salvar Observações Internas
-  const handleSalvarObservacao = async () => {
-    if (!reservaSelecionada) return;
-    setSalvando(true);
-
-    const { error } = await supabase
-      .from('reservas_quadras')
-      .update({ observacoes: observacaoEdicao.trim() })
-      .eq('id', reservaSelecionada.id);
-
-    setSalvando(false);
-
-    if (error) {
-      alert('Erro ao salvar observação: ' + error.message);
-    } else {
-      alert('Observação salva com sucesso!');
-      setReservaSelecionada((prev) => ({ ...prev, observacoes: observacaoEdicao.trim() }));
-      carregarReservas();
-    }
-  };
-
-  // Cancelar Reserva
-  const handleCancelarReserva = async () => {
-    if (!reservaSelecionada) return;
-    if (!confirm('Tem certeza que deseja cancelar esta reserva? O horário será liberado na grade.')) return;
-
-    setSalvando(true);
-    const { error } = await supabase
-      .from('reservas_quadras')
-      .update({ status: 'cancelado' })
-      .eq('id', reservaSelecionada.id);
-
-    setSalvando(false);
-
-    if (error) {
-      alert('Erro ao cancelar: ' + error.message);
-    } else {
-      setModalDetalhesOpen(false);
-      carregarReservas();
-    }
-  };
-
-  // Métricas do Dia
-  const totalConfirmadas = reservas.filter((r) => r.status === 'confirmado').length;
-  const totalPendentes = reservas.filter((r) => r.status === 'pendente').length;
 
   return (
-    <div className="space-y-6 font-sans text-slate-900 pb-12">
-      
-      {/* BARRA SUPERIOR DE CONTROLE E DATAS */}
-      <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-black flex items-center gap-2 text-slate-900">
-            <Dumbbell className="w-6 h-6 text-red-600" /> Painel de Quadras & Agenda
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Gerencie horários, confirme agendamentos e faça lançamentos de balcão.
-          </p>
-        </div>
+    <>
+      <Suspense fallback={null}>
+        <LerDataDaUrl aoLer={setDataEscolhida} />
+      </Suspense>
 
-        {/* SELETOR DE DATA E BOTÃO DE NOVO AGENDAMENTO BALCÃO */}
-        <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200">
-            <button
-              onClick={setDataHoje}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                dataSelecionada === new Date().toISOString().split('T')[0]
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              Hoje
-            </button>
-            <button
-              onClick={setDataAmanha}
-              className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200 transition"
-            >
-              Amanhã
-            </button>
-            <input
-              type="date"
-              value={dataSelecionada}
-              onChange={(e) => setDataSelecionada(e.target.value)}
-              className="bg-white border border-slate-200 rounded-xl px-2.5 py-1 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-600"
-            />
-          </div>
-
-          <button
-            onClick={() => setModalNovoOpen(true)}
-            className="bg-red-600 hover:bg-red-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition"
-          >
-            <Plus className="w-4 h-4" /> Novo Agendamento
+      <CabecalhoPagina titulo="Agenda de quadras" descricao={data ? formatarDataLonga(data) : ' '}>
+        <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1">
+          <button onClick={() => setDataEscolhida(somarDias(data, -1))} disabled={!data} className="p-2 rounded-lg hover:bg-slate-100" aria-label="Dia anterior">
+            <ChevronLeft className="w-4 h-4" />
           </button>
+          <button onClick={() => setDataEscolhida(hoje)} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${data === hoje ? 'bg-slate-900 text-white' : 'hover:bg-slate-100'}`}>
+            Hoje
+          </button>
+          <button onClick={() => setDataEscolhida(somarDias(data, 1))} disabled={!data} className="p-2 rounded-lg hover:bg-slate-100" aria-label="Próximo dia">
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          <label className="relative p-2 rounded-lg hover:bg-slate-100 cursor-pointer" aria-label="Escolher data">
+            <CalendarDays className="w-4 h-4" />
+            <input type="date" value={data} onChange={(e) => e.target.value && setDataEscolhida(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" />
+          </label>
         </div>
+        <button onClick={() => abrirNovo()} disabled={!data} className="btn-primario">
+          <Plus className="w-4 h-4" /> Agendar no balcão
+        </button>
+      </CabecalhoPagina>
+
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <Indicador rotulo="Confirmadas" valor={confirmadas} icone={CheckCircle2} tom="emerald" />
+        <Indicador rotulo="Pendentes" valor={pendentes} icone={Clock} tom="amber" />
+        <Indicador rotulo="Ocupação" valor={`${Math.round((horasReservadas / horasTotais) * 100)}%`} detalhe={`${horasReservadas}h de ${horasTotais}h`} icone={Gauge} tom="red" />
       </div>
 
-      {/* CARDS DE MÉTRICAS RÁPIDAS DO DIA */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-100">
-            <CheckCircle2 className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-[10px] font-extrabold uppercase text-slate-400">Confirmados Hoje</p>
-            <p className="text-lg font-black text-slate-900">{totalConfirmadas}</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 bg-amber-50 text-amber-600 rounded-xl border border-amber-100">
-            <Clock className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-[10px] font-extrabold uppercase text-slate-400">Aguardando Confirmação</p>
-            <p className="text-lg font-black text-amber-600">{totalPendentes}</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3 col-span-2 sm:col-span-1">
-          <div className="p-2.5 bg-slate-100 text-slate-600 rounded-xl border border-slate-200">
-            <Calendar className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-[10px] font-extrabold uppercase text-slate-400">Data em Exibição</p>
-            <p className="text-xs font-black text-slate-900">{dataSelecionada}</p>
-          </div>
-        </div>
+      {/* Seletor de quadra no celular */}
+      <div className="md:hidden flex gap-2 overflow-x-auto">
+        {QUADRAS.map((q) => (
+          <button
+            key={q.id}
+            onClick={() => setQuadraMobile(q.nome)}
+            className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap border ${quadraMobile === q.nome ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200 text-slate-600'}`}
+          >
+            {q.curto}
+          </button>
+        ))}
       </div>
 
-      {/* GRADE VISUAL DAS QUADRAS LADO A LADO */}
-      <div className="bg-white p-4 sm:p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
-        <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-          <h2 className="text-xs sm:text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-red-600" /> Grade de Horários por Quadra
-          </h2>
-          <div className="flex items-center gap-3 text-[11px] font-bold">
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-white border border-slate-300"></span> Livre</span>
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Pendente</span>
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Confirmado</span>
+      <section className="cartao overflow-hidden relative">
+        {carregando && (
+          <div className="absolute inset-0 bg-white/60 z-10 flex items-center justify-center">
+            <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
           </div>
+        )}
+
+        {/* Cabeçalho das colunas */}
+        <div className="grid grid-cols-[56px_1fr] md:grid-cols-[56px_repeat(3,1fr)] border-b border-slate-200 bg-slate-50 sticky top-0 z-[5]">
+          <div />
+          {QUADRAS.map((q) => (
+            <div key={q.id} className={`px-3 py-3 border-l border-slate-200 ${quadraMobile === q.nome ? '' : 'hidden md:block'}`}>
+              <p className="font-display font-black uppercase text-slate-900">{q.curto}</p>
+              <p className="text-[11px] text-slate-500 truncate">{q.esportes}</p>
+            </div>
+          ))}
         </div>
 
-        {loading ? (
-          <p className="text-xs text-slate-400 text-center py-12">Carregando horários das quadras...</p>
-        ) : (
-          <div className="grid lg:grid-cols-3 gap-6">
-            {QUADRAS.map((quadraNome) => (
-              <div key={quadraNome} className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
-                <div className="bg-slate-900 text-white p-3 rounded-xl flex justify-between items-center">
-                  <span className="font-extrabold text-xs">{quadraNome}</span>
-                </div>
-
-                <div className="space-y-1.5 max-h-[500px] overflow-y-auto pr-1">
-                  {HORARIOS_DIA.map((hora) => {
-                    const reserva = getReservaNoSlot(quadraNome, hora);
-
-                    if (reserva) {
-                      const eInicio = reserva.horario_inicio === hora;
-                      const eConfirmado = reserva.status === 'confirmado';
-
-                      return (
-                        <div
-                          key={hora}
-                          onClick={() => handleAbrirDetalhes(reserva)}
-                          className={`p-2.5 rounded-xl border text-xs cursor-pointer transition flex items-center justify-between ${
-                            eConfirmado
-                              ? 'bg-emerald-50 border-emerald-200 text-emerald-950 hover:bg-emerald-100'
-                              : 'bg-amber-50 border-amber-200 text-amber-950 hover:bg-amber-100'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="font-black text-[11px] w-10 shrink-0">{hora}</span>
-                            <div className="truncate">
-                              <p className="font-extrabold text-xs truncate">{reserva.cliente_nome}</p>
-                              <p className="text-[10px] opacity-80">
-                                {reserva.horario_inicio} - {reserva.horario_fim} {eInicio ? '' : '(Em andamento)'}
-                              </p>
-                            </div>
-                          </div>
-
-                          <span
-                            className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${
-                              eConfirmado ? 'bg-emerald-200 text-emerald-900' : 'bg-amber-200 text-amber-900'
-                            }`}
-                          >
-                            {reserva.status}
-                          </span>
-                        </div>
-                      );
-                    }
-
-                    // Slot Livre
-                    return (
-                      <button
-                        key={hora}
-                        type="button"
-                        onClick={() => handleAbrirNovoSlot(quadraNome, hora)}
-                        className="w-full p-2 bg-white hover:bg-emerald-50 text-slate-600 hover:text-emerald-800 border border-slate-200 hover:border-emerald-300 rounded-xl text-xs font-bold transition flex items-center justify-between"
-                      >
-                        <span className="font-extrabold w-10 text-left text-slate-800">{hora}</span>
-                        <span className="text-[10px] font-semibold text-slate-400 hover:text-emerald-700 flex items-center gap-1">
-                          <Plus className="w-3 h-3" /> Reservar
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+        <div className="grid grid-cols-[56px_1fr] md:grid-cols-[56px_repeat(3,1fr)] relative">
+          {/* Linhas de hora */}
+          <div className="grid" style={{ gridTemplateRows: `repeat(${HORARIOS_QUADRA.length}, ${ALTURA_HORA}px)` }}>
+            {HORARIOS_QUADRA.map((h) => (
+              <div key={h} className="text-[11px] font-bold text-slate-400 text-right pr-2 pt-1 tabular-nums border-t border-slate-100">{h}</div>
             ))}
           </div>
-        )}
+          {QUADRAS.map((q) => (
+            <div
+              key={q.id}
+              className={`border-l border-slate-200 ${quadraMobile === q.nome ? '' : 'hidden md:block'}`}
+              style={{ backgroundImage: `repeating-linear-gradient(to bottom, transparent 0, transparent ${ALTURA_HORA - 1}px, rgb(241 245 249) ${ALTURA_HORA - 1}px, rgb(241 245 249) ${ALTURA_HORA}px)` }}
+            >
+              {colunaQuadra(q)}
+            </div>
+          ))}
+
+          {minutosAgoraNaGrade !== null && (
+            <div className="absolute left-14 right-0 h-0.5 bg-red-500 pointer-events-none z-[4]" style={{ top: (minutosAgoraNaGrade / 60) * ALTURA_HORA }}>
+              <span className="absolute -left-1.5 -top-1 w-2.5 h-2.5 rounded-full bg-red-500" />
+            </div>
+          )}
+        </div>
+      </section>
+
+      <div className="flex flex-wrap gap-4 text-xs font-semibold text-slate-500">
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-100 border border-emerald-300" /> Confirmado</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-300" /> Pendente</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-slate-100 border border-slate-300" /> Concluído</span>
+        <span>Clique em um horário vazio para agendar.</span>
       </div>
 
-      {/* LISTA DE SOLICITAÇÕES PENDENTES DO DIA */}
-      <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4">
-        <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-          <Clock className="w-4 h-4 text-amber-600" /> Solicitações Pendentes de Confirmação ({totalPendentes})
-        </h2>
+      {selecionada && <ModalReserva key={selecionada.chave} reserva={selecionada} aoFechar={() => setSelecionada(null)} aoAtualizar={aoAtualizar} />}
 
-        {reservas.filter((r) => r.status === 'pendente').length === 0 ? (
-          <p className="text-xs text-slate-400 py-4 text-center">Nenhuma solicitação pendente para esta data.</p>
-        ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {reservas
-              .filter((r) => r.status === 'pendente')
-              .map((r) => (
-                <div key={r.id} className="p-4 bg-amber-50/60 border border-amber-200 rounded-2xl space-y-3 text-xs">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="font-extrabold text-slate-900">{r.cliente_nome}</p>
-                      <p className="text-[11px] text-slate-600 font-semibold">{r.quadra_nome}</p>
-                    </div>
-                    <span className="bg-amber-200 text-amber-900 font-black text-[10px] px-2 py-0.5 rounded-md uppercase">
-                      Pendente
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-slate-700 font-bold bg-white/80 px-2.5 py-1.5 rounded-xl border border-amber-200/50">
-                    <Clock className="w-3.5 h-3.5 text-amber-600" /> {r.horario_inicio} às {r.horario_fim}
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1 border-t border-amber-200/40">
-                    <a
-                      href={`https://wa.me/55${r.cliente_whatsapp}?text=${encodeURIComponent(
-                        `Olá ${r.cliente_nome}! Sobre a sua solicitação de reserva na ${r.quadra_nome} para o dia${r.data_reserva} das ${r.horario_inicio} às ${r.horario_fim}...`
-                      )}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-emerald-700 hover:underline font-extrabold flex items-center gap-1"
-                    >
-                      <Phone className="w-3.5 h-3.5" /> WhatsApp
-                    </a>
-
-                    <button
-                      onClick={() => handleAbrirDetalhes(r)}
-                      className="bg-slate-900 text-white font-bold px-3 py-1 rounded-xl text-[11px] hover:bg-slate-800 transition"
-                    >
-                      Gerenciar
-                    </button>
-                  </div>
-                </div>
-              ))}
-          </div>
+      <Modal aberto={!!form} aoFechar={() => setForm(null)} titulo="Agendar no balcão" icone={<Plus className="w-5 h-5 text-red-600" />}>
+        {form && (
+          <form onSubmit={criarReserva} className="space-y-4">
+            <div>
+              <label htmlFor="ag-nome" className="rotulo">Nome do cliente *</label>
+              <input id="ag-nome" required autoFocus value={form.cliente_nome} onChange={(e) => setForm({ ...form, cliente_nome: e.target.value })} className="input" placeholder="Ex.: João da Silva" />
+            </div>
+            <div>
+              <label htmlFor="ag-fone" className="rotulo">WhatsApp *</label>
+              <input id="ag-fone" required type="tel" inputMode="numeric" value={formatarTelefone(form.cliente_whatsapp)} onChange={(e) => setForm({ ...form, cliente_whatsapp: apenasDigitos(e.target.value).slice(0, 11) })} className="input" placeholder="(11) 99999-9999" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="ag-quadra" className="rotulo">Quadra</label>
+                <select id="ag-quadra" value={form.quadra_nome} onChange={(e) => setForm({ ...form, quadra_nome: e.target.value })} className="input">
+                  {QUADRAS.map((q) => <option key={q.id} value={q.nome}>{q.curto} — {q.esportes}</option>)}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="ag-data" className="rotulo">Data</label>
+                <input id="ag-data" type="date" required value={form.data_reserva} onChange={(e) => setForm({ ...form, data_reserva: e.target.value })} className="input" />
+              </div>
+              <div>
+                <label htmlFor="ag-inicio" className="rotulo">Início</label>
+                <select id="ag-inicio" value={form.horario_inicio} onChange={(e) => setForm({ ...form, horario_inicio: e.target.value })} className="input">
+                  {HORARIOS_QUADRA.map((h) => <option key={h}>{h}</option>)}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="ag-duracao" className="rotulo">Duração</label>
+                <select id="ag-duracao" value={form.duracao} onChange={(e) => setForm({ ...form, duracao: Number(e.target.value) })} className="input">
+                  {DURACOES.map((d) => <option key={d} value={d}>{d} hora{d > 1 ? 's' : ''}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label htmlFor="ag-obs" className="rotulo">Observação interna</label>
+              <textarea id="ag-obs" rows={2} value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} className="input resize-none" placeholder="Ex.: pago no balcão via Pix" />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setForm(null)} className="btn-secundario">Cancelar</button>
+              <button type="submit" disabled={salvando} className="btn-primario">
+                {salvando && <Loader2 className="w-4 h-4 animate-spin" />} Confirmar agendamento
+              </button>
+            </div>
+          </form>
         )}
-      </div>
-
-      {/* MODAL: NOVO AGENDAMENTO BALCÃO / TELEFONE */}
-      {modalNovoOpen && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-5">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <h3 className="font-black text-slate-900 text-base flex items-center gap-2">
-                <Plus className="w-5 h-5 text-red-600" /> Agendar Horário (Balcão/Telefone)
-              </h3>
-              <button onClick={() => setModalNovoOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCriarReservaBalcao} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 uppercase mb-1">Nome do Cliente *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ex: João da Silva"
-                  value={formNovo.cliente_nome}
-                  onChange={(e) => setFormNovo({ ...formNovo, cliente_nome: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-600"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 uppercase mb-1">WhatsApp / Telefone *</label>
-                <input
-                  type="tel"
-                  required
-                  placeholder="Apenas números"
-                  value={formNovo.cliente_whatsapp}
-                  onChange={(e) => setFormNovo({ ...formNovo, cliente_whatsapp: e.target.value.replace(/\D/g, '') })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-600"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 uppercase mb-1">Quadra</label>
-                  <select
-                    value={formNovo.quadra_nome}
-                    onChange={(e) => setFormNovo({ ...formNovo, quadra_nome: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-600"
-                  >
-                    {QUADRAS.map((q) => (
-                      <option key={q} value={q}>
-                        {q}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 uppercase mb-1">Data</label>
-                  <input
-                    type="date"
-                    value={formNovo.data_reserva}
-                    onChange={(e) => setFormNovo({ ...formNovo, data_reserva: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-600"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 uppercase mb-1">Início</label>
-                  <select
-                    value={formNovo.horario_inicio}
-                    onChange={(e) => setFormNovo({ ...formNovo, horario_inicio: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-600"
-                  >
-                    {HORARIOS_DIA.map((h) => (
-                      <option key={h} value={h}>
-                        {h}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 uppercase mb-1">Duração</label>
-                  <select
-                    value={formNovo.duracao_horas}
-                    onChange={(e) => setFormNovo({ ...formNovo, duracao_horas: parseInt(e.target.value) })}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-600"
-                  >
-                    <option value={1}>1 Hora</option>
-                    <option value={2}>2 Horas</option>
-                    <option value={3}>3 Horas</option>
-                    <option value={4}>4 Horas</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 uppercase mb-1">Observação Interna (Opcional)</label>
-                <textarea
-                  rows={2}
-                  placeholder="Ex: Pago no balcão via Pix"
-                  value={formNovo.observacoes}
-                  onChange={(e) => setFormNovo({ ...formNovo, observacoes: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-600"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setModalNovoOpen(false)}
-                  className="px-4 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-100"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={salvando}
-                  className="bg-slate-900 text-white font-bold px-5 py-2 rounded-xl hover:bg-slate-800 disabled:opacity-50"
-                >
-                  {salvando ? 'Salvando...' : 'Confirmar Agendamento'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: DETALHES E GERENCIAMENTO DE RESERVA EXISTENTE */}
-      {modalDetalhesOpen && reservaSelecionada && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-5">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <h3 className="font-black text-slate-900 text-base">Detalhes da Reserva</h3>
-              <button onClick={() => setModalDetalhesOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4 text-xs">
-              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-1">
-                <p className="font-black text-sm text-slate-900">{reservaSelecionada.cliente_nome}</p>
-                <p className="text-slate-600 font-semibold">{reservaSelecionada.quadra_nome}</p>
-                <p className="text-red-600 font-extrabold flex items-center gap-1 mt-1">
-                  <Clock className="w-3.5 h-3.5" /> {reservaSelecionada.data_reserva} | {reservaSelecionada.horario_inicio} às {reservaSelecionada.horario_fim}
-                </p>
-              </div>
-
-              {/* CONTROLE DE STATUS */}
-              <div>
-                <label className="block font-bold text-slate-700 uppercase mb-1.5">Status da Reserva</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleAtualizarStatus('confirmado')}
-                    className={`py-2 px-3 rounded-xl font-bold flex items-center justify-center gap-1.5 transition ${
-                      reservaSelecionada.status === 'confirmado'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Confirmado
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleAtualizarStatus('pendente')}
-                    className={`py-2 px-3 rounded-xl font-bold flex items-center justify-center gap-1.5 transition ${
-                      reservaSelecionada.status === 'pendente'
-                        ? 'bg-amber-500 text-white shadow-sm'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    <Clock className="w-3.5 h-3.5" /> Pendente
-                  </button>
-                </div>
-              </div>
-
-              {/* BOTAO WHATSAPP */}
-              <a
-                href={`https://wa.me/55${reservaSelecionada.cliente_whatsapp}?text=${encodeURIComponent(
-                  `Olá ${reservaSelecionada.cliente_nome}! A sua reserva na ${reservaSelecionada.quadra_nome} para o dia ${reservaSelecionada.data_reserva} (${reservaSelecionada.horario_inicio} às ${reservaSelecionada.horario_fim}) foi${reservaSelecionada.status === 'confirmado' ? 'CONFIRMADA' : 'atualizada'}. Te aguardamos!`
-                )}`}
-                target="_blank"
-                rel="noreferrer"
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-sm transition"
-              >
-                <MessageSquare className="w-4 h-4" /> Falar com Cliente no WhatsApp
-              </a>
-
-              {/* OBSERVAÇÕES INTERNAS */}
-              <div>
-                <label className="block font-bold text-slate-700 uppercase mb-1 flex items-center gap-1">
-                  <FileText className="w-3.5 h-3.5 text-slate-400" /> Observações Internas (Recepção)
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Ex: Sinal pago via Pix, observação da quadra..."
-                  value={observacaoEdicao}
-                  onChange={(e) => setObservacaoEdicao(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-600"
-                />
-                <button
-                  type="button"
-                  onClick={handleSalvarObservacao}
-                  disabled={salvando}
-                  className="mt-1 text-[11px] font-bold text-slate-900 hover:underline flex items-center gap-1"
-                >
-                  <Check className="w-3 h-3 text-emerald-600" />
-                  Salvar observação
-                </button>
-
-                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setModalDetalhesOpen(false)}
-                    className="px-4 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-100"
-                  >
-                    Fechar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCancelarReserva}
-                    disabled={salvando}
-                    className="bg-red-600 text-white font-bold px-4 py-2 rounded-xl hover:bg-red-700 disabled:opacity-50"
-                  >
-                    Cancelar Reserva
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      </Modal>
+    </>
   );
 }

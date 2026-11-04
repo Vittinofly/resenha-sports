@@ -1,72 +1,56 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Search, Utensils } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useMemo, useState } from 'react';
+import { Search, UtensilsCrossed, X } from 'lucide-react';
+import { useCardapioDisponivel, agruparPorCategoria, normalizarBusca } from '@/lib/cardapio';
+import { formatarMoeda } from '@/lib/formatadores';
 
-export default function CardapioViewer({ titulo = "Ementa & Restaurante", subtitulo = "Consulte as nossas opções de pratos, espetinhos e bebidas." }) {
-  const [cardapio, setCardapio] = useState([]);
-  const [carregando, setCarregando] = useState(true);
+export default function CardapioViewer() {
+  const { itens, carregando, erro } = useCardapioDisponivel();
   const [busca, setBusca] = useState('');
   const [categoriaAtiva, setCategoriaAtiva] = useState('Todos');
 
-  useEffect(() => {
-    async function carregarCardapio() {
-      setCarregando(true);
-      const { data } = await supabase
-        .from('cardapio')
-        .select('*')
-        .eq('disponivel', true)
-        .order('categoria', { ascending: true });
+  const grupos = useMemo(() => agruparPorCategoria(itens), [itens]);
+  const termo = normalizarBusca(busca);
 
-      if (data) setCardapio(data);
-      setCarregando(false);
-    }
-    carregarCardapio();
-  }, []);
-
-  const categorias = ['Todos', ...Array.from(new Set(cardapio.map((i) => i.categoria).filter(Boolean)))];
-
-  const itensFiltrados = cardapio.filter((item) => {
-    const atendeCat = categoriaAtiva === 'Todos' || item.categoria === categoriaAtiva;
-    const atendeBusca = item.nome.toLowerCase().includes(busca.toLowerCase()) ||
-                        (item.descricao && item.descricao.toLowerCase().includes(busca.toLowerCase()));
-    return atendeCat && atendeBusca;
-  });
+  const gruposFiltrados = grupos
+    .filter(([cat]) => categoriaAtiva === 'Todos' || cat === categoriaAtiva)
+    .map(([cat, lista]) => [
+      cat,
+      lista.filter((i) => !termo || normalizarBusca(i.nome).includes(termo) || normalizarBusca(i.descricao).includes(termo)),
+    ])
+    .filter(([, lista]) => lista.length > 0);
 
   return (
     <div className="space-y-6">
-      {titulo && (
-        <div className="border-b border-slate-200 pb-4">
-          <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
-            <Utensils className="w-5 h-5 text-red-600" /> {titulo}
-          </h2>
-          {subtitulo && <p className="text-xs text-slate-500 mt-1">{subtitulo}</p>}
-        </div>
-      )}
-
-      {/* Busca e Filtros */}
-      <div className="space-y-3">
+      {/* Busca e filtros fixos no topo ao rolar */}
+      <div className="sticky top-16 z-20 -mx-4 px-4 py-3 bg-[var(--background)]/95 backdrop-blur space-y-3">
         <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
-            type="text"
-            placeholder="Pesquisar prato ou bebida..."
+            type="search"
+            placeholder="Buscar prato, porção ou bebida..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-600 text-slate-900"
+            className="input pl-10 pr-10 bg-white"
+            aria-label="Buscar no cardápio"
           />
+          {busca && (
+            <button onClick={() => setBusca('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700" aria-label="Limpar busca">
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {categorias.map((cat) => (
+        <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]" role="tablist" aria-label="Categorias">
+          {['Todos', ...grupos.map(([c]) => c)].map((cat) => (
             <button
               key={cat}
+              role="tab"
+              aria-selected={categoriaAtiva === cat}
               onClick={() => setCategoriaAtiva(cat)}
-              className={`px-4 py-2 rounded-full text-xs font-bold transition-all whitespace-nowrap ${
-                categoriaAtiva === cat
-                  ? 'bg-red-600 text-white shadow-sm'
-                  : 'bg-slate-200/70 text-slate-700 hover:bg-slate-200'
+              className={`px-4 py-2 rounded-full text-xs font-bold transition whitespace-nowrap border ${
+                categoriaAtiva === cat ? 'bg-red-600 border-red-600 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
               }`}
             >
               {cat}
@@ -75,39 +59,47 @@ export default function CardapioViewer({ titulo = "Ementa & Restaurante", subtit
         </div>
       </div>
 
-      {/* Grid de Produtos */}
       {carregando ? (
-        <div className="p-8 text-center text-slate-400 text-sm">A carregar ementa...</div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {itensFiltrados.length === 0 ? (
-            <p className="text-xs text-slate-500 col-span-full text-center py-6">
-              Nenhum item encontrado nesta categoria.
-            </p>
-          ) : (
-            itensFiltrados.map((item) => (
-              <div key={item.id} className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm flex flex-col justify-between">
-                {item.imagem_url && (
-                  <img src={item.imagem_url} alt={item.nome} className="h-40 w-full object-cover" />
-                )}
-                <div className="p-4 flex-1 flex flex-col justify-between space-y-2">
-                  <div>
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-red-600 bg-red-50 px-2 py-0.5 rounded-full border border-red-100">
-                      {item.categoria}
-                    </span>
-                    <h3 className="text-base font-bold text-slate-900 mt-1">{item.nome}</h3>
-                    <p className="text-xs text-slate-500 mt-1 line-clamp-2">{item.descricao}</p>
-                  </div>
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                    <span className="text-base font-black text-red-600">
-                      R$ {Number(item.preco || 0).toFixed(2).replace('.', ',')}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
+        <div className="grid sm:grid-cols-2 gap-3" aria-busy="true">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-20 rounded-2xl bg-slate-200/70 animate-pulse" />
+          ))}
         </div>
+      ) : erro ? (
+        <p className="cartao p-8 text-center text-sm text-slate-500">Não foi possível carregar o cardápio agora. Tente novamente em instantes.</p>
+      ) : gruposFiltrados.length === 0 ? (
+        <div className="cartao p-10 text-center">
+          <UtensilsCrossed className="w-10 h-10 text-slate-300 mx-auto" />
+          <p className="text-sm text-slate-500 mt-3">
+            {itens.length === 0 ? 'Cardápio em atualização. Volte em breve!' : 'Nenhum item encontrado para essa busca.'}
+          </p>
+        </div>
+      ) : (
+        gruposFiltrados.map(([categoria, lista]) => (
+          <section key={categoria} aria-labelledby={`cat-${categoria}`}>
+            <h2 id={`cat-${categoria}`} className="titulo-secao text-2xl flex items-center gap-3 mb-3">
+              {categoria}
+              <span className="h-px flex-1 bg-slate-200" />
+            </h2>
+            <ul className="grid sm:grid-cols-2 gap-3">
+              {lista.map((item) => (
+                <li key={item.id} className="cartao p-4 flex gap-4 items-start hover:border-red-200 transition">
+                  {item.imagem_url && (
+                    // eslint-disable-next-line @next/next/no-img-element -- URLs externas arbitrárias cadastradas pelo admin
+                    <img src={item.imagem_url} alt="" loading="lazy" className="w-20 h-20 rounded-2xl object-cover shrink-0 bg-slate-100" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="font-bold text-slate-900 leading-snug">{item.nome}</h3>
+                      <span className="font-display font-black text-lg text-red-600 whitespace-nowrap leading-none mt-0.5">{formatarMoeda(item.preco)}</span>
+                    </div>
+                    {item.descricao && <p className="text-xs text-slate-500 mt-1 line-clamp-2">{item.descricao}</p>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))
       )}
     </div>
   );

@@ -1,192 +1,231 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, Eye, EyeOff, Loader2, Pencil, Plus, Search, Trash2, UtensilsCrossed, PauseCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { Utensils, Plus, Trash2, CheckCircle2, XCircle, DollarSign, Tag } from 'lucide-react';
+import { CATEGORIAS_CARDAPIO } from '@/lib/config';
+import { agruparPorCategoria, normalizarBusca, ordemCategoria } from '@/lib/cardapio';
+import { formatarMoeda, lerPreco } from '@/lib/formatadores';
+import { useFeedback } from '@/components/feedback';
+import { CabecalhoPagina, Indicador, Segmentado, Vazio } from '@/components/admin/ui';
+import Modal from '@/components/modal';
+
+const ITEM_VAZIO = { nome: '', categoria: CATEGORIAS_CARDAPIO[0], preco: '', disponivel: true, descricao: '', imagem_url: '' };
 
 export default function AdminCardapioPage() {
+  const { toast, confirmar } = useFeedback();
   const [produtos, setProdutos] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [carregando, setCarregando] = useState(true);
+  const [busca, setBusca] = useState('');
+  const [filtro, setFiltro] = useState('todos');
+  const [edicao, setEdicao] = useState(null); // item em edição (id ausente = novo)
   const [salvando, setSalvando] = useState(false);
+  const [alternando, setAlternando] = useState(null);
 
-  const [novoItem, setNovoItem] = useState({
-    nome: '',
-    categoria: 'Bebidas',
-    preco: '',
-    disponivel: true,
-  });
-
-  const carregarCardapio = async () => {
-    setLoading(true);
-    const { data } = await supabase.from('cardapio').select('*').order('categoria', { ascending: true });
-    if (data) setProdutos(data);
-    setLoading(false);
-  };
+  const carregar = useCallback(async () => {
+    setCarregando(true);
+    const { data, error } = await supabase.from('cardapio').select('*');
+    if (error) toast('Erro ao carregar cardápio: ' + error.message, 'erro');
+    setProdutos(data || []);
+    setCarregando(false);
+  }, [toast]);
 
   useEffect(() => {
-    carregarCardapio();
-  }, []);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial de dados
+    carregar();
+  }, [carregar]);
 
-  const handleCriarProduto = async (e) => {
+  // Colunas opcionais: só exibimos os campos se existirem na tabela
+  const temDescricao = produtos.some((p) => 'descricao' in p);
+  const temImagem = produtos.some((p) => 'imagem_url' in p);
+
+  const categorias = useMemo(
+    () => [...new Set([...CATEGORIAS_CARDAPIO, ...produtos.map((p) => p.categoria).filter(Boolean)])].sort(ordemCategoria),
+    [produtos]
+  );
+
+  const termo = normalizarBusca(busca);
+  const filtrados = produtos.filter(
+    (p) =>
+      (filtro === 'todos' || (filtro === 'ativos' ? p.disponivel : !p.disponivel)) &&
+      (!termo || normalizarBusca(p.nome).includes(termo) || normalizarBusca(p.categoria).includes(termo))
+  );
+  const grupos = agruparPorCategoria(filtrados);
+  const ativos = produtos.filter((p) => p.disponivel).length;
+
+  const salvar = async (e) => {
     e.preventDefault();
-    if (!novoItem.nome || !novoItem.preco) return;
+    const preco = lerPreco(edicao.preco);
+    if (!edicao.nome.trim()) return toast('Informe o nome do item.', 'erro');
+    if (!Number.isFinite(preco) || preco < 0) return toast('Preço inválido. Use o formato 19,90.', 'erro');
+
+    const campos = {
+      nome: edicao.nome.trim(),
+      categoria: edicao.categoria.trim() || 'Outros',
+      preco,
+      disponivel: edicao.disponivel,
+      ...(temDescricao && { descricao: edicao.descricao?.trim() || null }),
+      ...(temImagem && { imagem_url: edicao.imagem_url?.trim() || null }),
+    };
 
     setSalvando(true);
-    const { error } = await supabase.from('cardapio').insert([
-      {
-        nome: novoItem.nome.trim(),
-        categoria: novoItem.categoria,
-        preco: parseFloat(novoItem.preco.replace(',', '.')),
-        disponivel: novoItem.disponivel,
-      },
-    ]);
-
+    const { error } = edicao.id
+      ? await supabase.from('cardapio').update(campos).eq('id', edicao.id)
+      : await supabase.from('cardapio').insert([campos]);
     setSalvando(false);
 
-    if (error) {
-      alert('Erro ao adicionar item: ' + error.message);
-    } else {
-      setNovoItem({ nome: '', categoria: 'Bebidas', preco: '', disponivel: true });
-      carregarCardapio();
-    }
+    if (error) return toast('Erro ao salvar: ' + error.message, 'erro');
+    toast(edicao.id ? 'Item atualizado.' : 'Item adicionado ao cardápio.');
+    setEdicao(null);
+    carregar();
   };
 
-  const toggleDisponibilidade = async (id, statusAtual) => {
-    await supabase.from('cardapio').update({ disponivel: !statusAtual }).eq('id', id);
-    carregarCardapio();
+  const alternarDisponivel = async (item) => {
+    setAlternando(item.id);
+    const { error } = await supabase.from('cardapio').update({ disponivel: !item.disponivel }).eq('id', item.id);
+    setAlternando(null);
+    if (error) return toast('Erro: ' + error.message, 'erro');
+    setProdutos((lista) => lista.map((p) => (p.id === item.id ? { ...p, disponivel: !p.disponivel } : p)));
+    toast(item.disponivel ? `${item.nome} pausado (some do cardápio público).` : `${item.nome} disponível novamente.`);
   };
 
-  const deletarProduto = async (id) => {
-    if (!confirm('Tem certeza que deseja excluir este item do cardápio?')) return;
-    await supabase.from('cardapio').delete().eq('id', id);
-    carregarCardapio();
+  const excluir = async (item) => {
+    const ok = await confirmar({
+      titulo: 'Excluir item?',
+      mensagem: `"${item.nome}" será removido definitivamente. Se for algo temporário, prefira pausar.`,
+      textoConfirmar: 'Excluir',
+      perigo: true,
+    });
+    if (!ok) return;
+    const { error } = await supabase.from('cardapio').delete().eq('id', item.id);
+    if (error) return toast('Erro ao excluir: ' + error.message, 'erro');
+    setProdutos((lista) => lista.filter((p) => p.id !== item.id));
+    setEdicao(null);
+    toast('Item excluído.');
   };
 
   return (
-    <div className="space-y-6 font-sans text-slate-900">
-      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-black flex items-center gap-2">
-            <Utensils className="w-6 h-6 text-red-600" /> Gestão do Cardápio
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">Gerencie os itens oferecidos no pré-pedido de mesas e quiosques.</p>
+    <>
+      <CabecalhoPagina titulo="Cardápio" descricao="Itens disponíveis aparecem no cardápio público e no pré-pedido de mesas e quiosques.">
+        <button onClick={() => setEdicao({ ...ITEM_VAZIO })} className="btn-primario">
+          <Plus className="w-4 h-4" /> Novo item
+        </button>
+      </CabecalhoPagina>
+
+      <div className="grid grid-cols-3 gap-3">
+        <Indicador rotulo="Itens" valor={carregando ? '–' : produtos.length} icone={UtensilsCrossed} />
+        <Indicador rotulo="Disponíveis" valor={carregando ? '–' : ativos} icone={CheckCircle2} tom="emerald" />
+        <Indicador rotulo="Pausados" valor={carregando ? '–' : produtos.length - ativos} icone={PauseCircle} tom="amber" />
+      </div>
+
+      <div className="flex flex-col md:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <input type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar item ou categoria..." className="input pl-10 bg-white" aria-label="Buscar no cardápio" />
         </div>
+        <Segmentado
+          rotulo="Disponibilidade"
+          valor={filtro}
+          aoMudar={setFiltro}
+          opcoes={[{ valor: 'todos', label: 'Todos' }, { valor: 'ativos', label: 'Disponíveis' }, { valor: 'pausados', label: 'Pausados' }]}
+        />
       </div>
 
-      {/* FORMULÁRIO DE CADASTRO DE ITEM */}
-      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-        <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-1.5">
-          <Plus className="w-4 h-4 text-red-600" /> Adicionar Novo Item
-        </h2>
-
-        <form onSubmit={handleCriarProduto} className="grid sm:grid-cols-4 gap-4 items-end">
-          <div className="sm:col-span-2">
-            <label className="block text-[11px] font-extrabold text-slate-600 uppercase mb-1">Nome do Item *</label>
-            <input
-              type="text"
-              required
-              placeholder="Ex: Cerveja Heineken Long Neck"
-              value={novoItem.nome}
-              onChange={(e) => setNovoItem({ ...novoItem, nome: e.target.value })}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-red-600"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-extrabold text-slate-600 uppercase mb-1">Categoria</label>
-            <select
-              value={novoItem.categoria}
-              onChange={(e) => setNovoItem({ ...novoItem, categoria: e.target.value })}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-red-600"
-            >
-              <option value="Bebidas">Bebidas</option>
-              <option value="Porções">Porções & Petiscos</option>
-              <option value="Espetinhos">Espetinhos</option>
-              <option value="Sobremesas">Sobremesas</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-extrabold text-slate-600 uppercase mb-1">Preço (R$) *</label>
-            <input
-              type="text"
-              required
-              placeholder="12,00"
-              value={novoItem.preco}
-              onChange={(e) => setNovoItem({ ...novoItem, preco: e.target.value })}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-red-600"
-            />
-          </div>
-
-          <div className="sm:col-span-4 flex justify-end">
-            <button
-              type="submit"
-              disabled={salvando}
-              className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-6 py-2.5 rounded-xl text-xs shadow-sm transition disabled:opacity-50"
-            >
-              {salvando ? 'Cadastrando...' : 'Cadastrar Item no Cardápio'}
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* LISTA DE PRODUTOS */}
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-3">
-        <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-2">Itens Cadastrados</h2>
-
-        {loading ? (
-          <p className="text-xs text-slate-400 text-center py-6">Carregando cardápio...</p>
-        ) : produtos.length === 0 ? (
-          <p className="text-xs text-slate-500 py-6 text-center">Nenhum item cadastrado no cardápio.</p>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {produtos.map((item) => (
-              <div key={item.id} className="py-3 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <span className="bg-slate-100 text-slate-700 font-extrabold px-2.5 py-1 rounded-lg text-[10px] uppercase">
-                    {item.categoria}
-                  </span>
-                  <div>
-                    <p className="font-extrabold text-xs text-slate-900">{item.nome}</p>
-                    <p className="text-xs font-bold text-red-600">
-                      R$ {Number(item.preco).toFixed(2).replace('.', ',')}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => toggleDisponibilidade(item.id, item.disponivel)}
-                    className={`px-3 py-1.5 rounded-xl text-[11px] font-bold transition flex items-center gap-1 ${
-                      item.disponivel
-                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
-                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                    }`}
-                  >
-                    {item.disponivel ? (
-                      <>
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Disponível
-                      </>
-                    ) : (
-                      <>
-                        <XCircle className="w-3.5 h-3.5 text-slate-400" /> Pausado
-                      </>
-                    )}
+      {carregando ? (
+        <div className="cartao p-12 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>
+      ) : grupos.length === 0 ? (
+        <div className="cartao">
+          <Vazio icone={UtensilsCrossed} titulo={produtos.length ? 'Nada encontrado' : 'Cardápio vazio'}>
+            {!produtos.length && (
+              <button onClick={() => setEdicao({ ...ITEM_VAZIO })} className="btn-primario mt-4"><Plus className="w-4 h-4" /> Cadastrar primeiro item</button>
+            )}
+          </Vazio>
+        </div>
+      ) : (
+        grupos.map(([categoria, itens]) => (
+          <section key={categoria}>
+            <h2 className="text-xs font-black uppercase tracking-wider text-slate-500 mb-2">
+              {categoria} <span className="text-slate-400 font-semibold">· {itens.length}</span>
+            </h2>
+            <ul className="cartao divide-y divide-slate-100 overflow-hidden">
+              {itens.map((item) => (
+                <li key={item.id} className={`flex items-center gap-3 px-4 py-3 ${item.disponivel ? '' : 'bg-slate-50'}`}>
+                  <button onClick={() => setEdicao({ ...ITEM_VAZIO, ...item, preco: String(item.preco).replace('.', ','), descricao: item.descricao || '', imagem_url: item.imagem_url || '' })} className="flex-1 min-w-0 text-left group">
+                    <p className={`font-bold truncate group-hover:text-red-600 ${item.disponivel ? 'text-slate-900' : 'text-slate-400 line-through'}`}>{item.nome}</p>
+                    {item.descricao && <p className="text-xs text-slate-500 truncate">{item.descricao}</p>}
                   </button>
-
+                  <span className="font-display font-black text-lg text-slate-900 tabular-nums">{formatarMoeda(item.preco)}</span>
                   <button
-                    onClick={() => deletarProduto(item.id)}
-                    className="p-2 text-slate-400 hover:text-red-600 transition"
-                    title="Excluir item"
+                    onClick={() => alternarDisponivel(item)}
+                    disabled={alternando === item.id}
+                    className={`chip !py-1.5 ${item.disponivel ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100' : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'}`}
+                    aria-label={item.disponivel ? `Pausar ${item.nome}` : `Ativar ${item.nome}`}
                   >
-                    <Trash2 className="w-4 h-4" />
+                    {alternando === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : item.disponivel ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                    <span className="hidden sm:inline">{item.disponivel ? 'Disponível' : 'Pausado'}</span>
                   </button>
-                </div>
+                  <button onClick={() => setEdicao({ ...ITEM_VAZIO, ...item, preco: String(item.preco).replace('.', ','), descricao: item.descricao || '', imagem_url: item.imagem_url || '' })} className="p-2 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100" aria-label={`Editar ${item.nome}`}>
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))
+      )}
+
+      <Modal aberto={!!edicao} aoFechar={() => setEdicao(null)} titulo={edicao?.id ? 'Editar item' : 'Novo item'} icone={<UtensilsCrossed className="w-5 h-5 text-red-600" />}>
+        {edicao && (
+          <form onSubmit={salvar} className="space-y-4">
+            <div>
+              <label htmlFor="item-nome" className="rotulo">Nome *</label>
+              <input id="item-nome" required autoFocus value={edicao.nome} onChange={(e) => setEdicao({ ...edicao, nome: e.target.value })} className="input" placeholder="Ex.: Espetinho de picanha" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="item-cat" className="rotulo">Categoria</label>
+                <input id="item-cat" list="lista-categorias" value={edicao.categoria} onChange={(e) => setEdicao({ ...edicao, categoria: e.target.value })} className="input" />
+                <datalist id="lista-categorias">
+                  {categorias.map((c) => <option key={c} value={c} />)}
+                </datalist>
               </div>
-            ))}
-          </div>
+              <div>
+                <label htmlFor="item-preco" className="rotulo">Preço (R$) *</label>
+                <input id="item-preco" required inputMode="decimal" value={edicao.preco} onChange={(e) => setEdicao({ ...edicao, preco: e.target.value })} className="input" placeholder="19,90" />
+              </div>
+            </div>
+            {temDescricao && (
+              <div>
+                <label htmlFor="item-desc" className="rotulo">Descrição</label>
+                <textarea id="item-desc" rows={2} value={edicao.descricao} onChange={(e) => setEdicao({ ...edicao, descricao: e.target.value })} className="input resize-none" placeholder="Ex.: 200g, acompanha farofa e vinagrete" />
+              </div>
+            )}
+            {temImagem && (
+              <div>
+                <label htmlFor="item-img" className="rotulo">URL da foto</label>
+                <input id="item-img" type="url" value={edicao.imagem_url} onChange={(e) => setEdicao({ ...edicao, imagem_url: e.target.value })} className="input" placeholder="https://..." />
+              </div>
+            )}
+            <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
+              <input type="checkbox" checked={edicao.disponivel} onChange={(e) => setEdicao({ ...edicao, disponivel: e.target.checked })} className="w-4 h-4 accent-red-600" />
+              <span className="text-sm font-semibold text-slate-700">Disponível no cardápio público</span>
+            </label>
+            <div className="flex items-center justify-between gap-2 pt-2">
+              {edicao.id ? (
+                <button type="button" onClick={() => excluir(edicao)} className="p-2.5 rounded-xl text-red-600 hover:bg-red-50" aria-label="Excluir item">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              ) : <span />}
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setEdicao(null)} className="btn-secundario">Cancelar</button>
+                <button type="submit" disabled={salvando} className="btn-primario">
+                  {salvando && <Loader2 className="w-4 h-4 animate-spin" />} Salvar
+                </button>
+              </div>
+            </div>
+          </form>
         )}
-      </div>
-    </div>
+      </Modal>
+    </>
   );
 }

@@ -1,394 +1,276 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
-import { 
-  CheckCircle, 
-  XCircle, 
-  History, 
-  Clock, 
-  RefreshCw, 
-  ChevronDown, 
-  ChevronUp, 
-  MessageCircle, 
-  Save, 
-  FileText, 
-  ShoppingBag,
-  User,
-  Phone,
-  Calendar,
-  PartyPopper,
-  Home,
-  Users
-} from 'lucide-react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { CheckCircle2, Download, Flag, Inbox, Loader2, MessageCircle, RefreshCw, Search, ShoppingBag, StickyNote, Users, X } from 'lucide-react';
+import { useHoje } from '@/lib/hooks';
+import { buscarReservas, atualizarReserva, baixarCSV } from '@/lib/admin';
+import { STATUS, STATUS_ATIVOS } from '@/lib/config';
+import { MODELOS_MENSAGEM, TIPOS_RESERVA } from '@/lib/reservas';
+import { formatarData, formatarDataLonga, formatarTelefone, linkWhatsApp, rotuloDia, somarDias } from '@/lib/formatadores';
+import { normalizarBusca } from '@/lib/cardapio';
+import { useFeedback } from '@/components/feedback';
+import { useAdmin } from '@/components/admin/shell';
+import { BadgeStatus, CabecalhoPagina, IconeTipo, Segmentado, Vazio } from '@/components/admin/ui';
+import ModalReserva from '@/components/admin/modal-reserva';
+
+const PERIODOS = {
+  proximos: { label: 'Próximos 30 dias', intervalo: (h) => [h, somarDias(h, 30)] },
+  hoje: { label: 'Hoje', intervalo: (h) => [h, h] },
+  semana: { label: 'Próximos 7 dias', intervalo: (h) => [h, somarDias(h, 7)] },
+  passados: { label: 'Últimos 30 dias', intervalo: (h) => [somarDias(h, -30), somarDias(h, -1)] },
+  tudo: { label: 'Todo o período', intervalo: () => [null, null] },
+};
+
+const FILTROS_STATUS = [
+  { valor: 'ativas', label: 'Ativas', testa: (s) => STATUS_ATIVOS.includes(s) },
+  { valor: 'pendente', label: 'Pendentes', testa: (s) => s === 'pendente' || s === 'agendada' },
+  { valor: 'confirmado', label: 'Confirmadas', testa: (s) => s === 'confirmado' },
+  { valor: 'concluido', label: 'Concluídas', testa: (s) => s === 'concluido' },
+  { valor: 'cancelado', label: 'Canceladas', testa: (s) => s === 'cancelado' },
+  { valor: 'todas', label: 'Todas', testa: () => true },
+];
+
+function LerFiltrosDaUrl({ aoLer }) {
+  const status = useSearchParams().get('status');
+  useEffect(() => {
+    if (status && FILTROS_STATUS.some((f) => f.valor === status)) aoLer(status);
+  }, [status, aoLer]);
+  return null;
+}
 
 export default function AdminReservasPage() {
-  const [visualizacao, setVisualizacao] = useState('ativas'); // 'ativas' | 'historico'
-  const [tabelaAtiva, setTabelaAtiva] = useState('quadras'); // 'quadras' | 'mesas' | 'quiosques'
+  const hoje = useHoje();
+  const { toast, confirmar } = useFeedback();
+  const { atualizarPendentes, pendentes: pendentesGlobais } = useAdmin();
+
+  const [periodo, setPeriodo] = useState('proximos');
+  const [tipo, setTipo] = useState('todas');
+  const [filtroStatus, setFiltroStatus] = useState('ativas');
+  const [busca, setBusca] = useState('');
   const [reservas, setReservas] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [ultimaAtualizacao, setUltimaAtualizacao] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+  const [selecionada, setSelecionada] = useState(null);
+  const [processando, setProcessando] = useState(null);
 
-  const [itemExpandidoId, setItemExpandidoId] = useState(null);
-  const [observacoesTemp, setObservacoesTemp] = useState({});
-  const [salvandoObs, setSalvandoObs] = useState(false);
-
-  const carregarReservas = async () => {
-    setLoading(true);
-    let nomeTabela = 'reservas_quadras';
-    if (tabelaAtiva === 'mesas') nomeTabela = 'reservas_mesas';
-    if (tabelaAtiva === 'quiosques') nomeTabela = 'reservas_quiosques';
-
-    const { data } = await supabase.from(nomeTabela).select('*').order('created_at', { ascending: false });
-    
-    if (data) {
-      setReservas(data);
-      const obsMap = {};
-      data.forEach((r) => {
-        obsMap[r.id] = r.observacoes || '';
-      });
-      setObservacoesTemp(obsMap);
-    }
-    setUltimaAtualizacao(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-    setLoading(false);
-  };
+  const carregar = useCallback(async () => {
+    if (!hoje) return;
+    setCarregando(true);
+    const [de, ate] = PERIODOS[periodo].intervalo(hoje);
+    const { reservas: lista, erro } = await buscarReservas({ de, ate });
+    if (erro) toast('Erro ao carregar reservas: ' + erro.message, 'erro');
+    setReservas(periodo === 'passados' ? lista.reverse() : lista);
+    setCarregando(false);
+  }, [hoje, periodo, toast]);
 
   useEffect(() => {
-    carregarReservas();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga de dados ao trocar filtros
+    carregar();
+  }, [carregar]);
 
-    const interval = setInterval(() => {
-      carregarReservas();
-    }, 2 * 60 * 1000);
+  // Recarrega quando chegam novas solicitações (contador global do shell aumentou)
+  const pendentesVistos = useRef(pendentesGlobais);
+  useEffect(() => {
+    if (pendentesGlobais > pendentesVistos.current) carregar();
+    pendentesVistos.current = pendentesGlobais;
+  }, [pendentesGlobais, carregar]);
 
-    return () => clearInterval(interval);
-  }, [tabelaAtiva]);
-
-  const toggleExpansao = (id) => {
-    setItemExpandidoId(itemExpandidoId === id ? null : id);
+  const aoAtualizar = (nova) => {
+    setReservas((lista) => lista.map((r) => (r.chave === nova.chave ? nova : r)));
+    atualizarPendentes();
   };
 
-  const alterarStatus = async (id, novoStatus) => {
-    let nomeTabela = 'reservas_quadras';
-    if (tabelaAtiva === 'mesas') nomeTabela = 'reservas_mesas';
-    if (tabelaAtiva === 'quiosques') nomeTabela = 'reservas_quiosques';
-
-    await supabase.from(nomeTabela).update({ status: novoStatus }).eq('id', id);
-    carregarReservas();
+  const mudarStatus = async (r, status) => {
+    setProcessando(r.chave);
+    const { error } = await atualizarReserva(r, { status });
+    setProcessando(null);
+    if (error) return toast('Erro: ' + error.message, 'erro');
+    aoAtualizar({ ...r, status });
+    toast(`${r.nome}: ${STATUS[status].label.toLowerCase()}.`);
   };
 
-  const handleSalvarObservacao = async (id) => {
-    setSalvandoObs(true);
-    let nomeTabela = 'reservas_quadras';
-    if (tabelaAtiva === 'mesas') nomeTabela = 'reservas_mesas';
-    if (tabelaAtiva === 'quiosques') nomeTabela = 'reservas_quiosques';
+  const termo = normalizarBusca(busca);
+  const testeStatus = FILTROS_STATUS.find((f) => f.valor === filtroStatus).testa;
+  const filtradas = useMemo(
+    () =>
+      reservas.filter(
+        (r) =>
+          (tipo === 'todas' || r.tipo === tipo) &&
+          testeStatus(r.status) &&
+          (!termo || normalizarBusca(r.nome).includes(termo) || r.cliente_whatsapp?.includes(termo.replace(/\D/g, '') || '#') || normalizarBusca(r.local).includes(termo))
+      ),
+    [reservas, tipo, testeStatus, termo]
+  );
 
-    const textoObs = observacoesTemp[id] || '';
-    const { error } = await supabase.from(nomeTabela).update({ observacoes: textoObs }).eq('id', id);
-
-    setSalvandoObs(false);
-
-    if (error) {
-      alert('Erro ao salvar observação: ' + error.message);
-    } else {
-      alert('Observação salva com sucesso!');
-      carregarReservas();
+  const porDia = useMemo(() => {
+    const grupos = new Map();
+    for (const r of filtradas) {
+      if (!grupos.has(r.data_reserva)) grupos.set(r.data_reserva, []);
+      grupos.get(r.data_reserva).push(r);
     }
+    return [...grupos.entries()];
+  }, [filtradas]);
+
+  const contagemTipo = (t) => reservas.filter((r) => (t === 'todas' || r.tipo === t) && (r.status === 'pendente' || r.status === 'agendada')).length;
+
+  // Reservas confirmadas de dias que já passaram ainda aparecem como "ativas"
+  const antigasAbertas = reservas.filter((r) => r.data_reserva < hoje && r.status === 'confirmado');
+
+  const concluirAntigas = async () => {
+    const ok = await confirmar({
+      titulo: 'Concluir reservas antigas?',
+      mensagem: `${antigasAbertas.length} reserva(s) confirmada(s) de dias anteriores serão marcadas como concluídas.`,
+      textoConfirmar: 'Concluir todas',
+    });
+    if (!ok) return;
+    setProcessando('lote');
+    const resultados = await Promise.all(antigasAbertas.map((r) => atualizarReserva(r, { status: 'concluido' })));
+    setProcessando(null);
+    const falhas = resultados.filter((r) => r.error).length;
+    toast(falhas ? `${falhas} não puderam ser atualizadas.` : 'Reservas antigas concluídas.', falhas ? 'erro' : 'sucesso');
+    carregar();
   };
 
-  // Função para interpretar e separar Quiosque, Evento e Consumo de forma organizada
-  const parseDetalhesEvento = (texto) => {
-    if (!texto) return { evento: 'Não informado', quiosque: 'Não especificado', consumoItens: [] };
-
-    const partes = texto.split('|').map((p) => p.trim());
-    
-    let evento = partes[0] || 'Evento';
-    let quiosque = partes[1] || 'Quiosque Solicitado';
-    let consumoTexto = partes.find((p) => p.toLowerCase().includes('pedido:') || p.toLowerCase().includes('pré-pedido:')) || '';
-
-    let consumoLimpo = consumoTexto.replace(/^(pedido|pré-pedido):\s*\[?/i, '').replace(/\]$/, '').trim();
-
-    let consumoItens = consumoLimpo && consumoLimpo !== 'Nenhum'
-      ? consumoLimpo.split(',').map((item) => item.trim())
-      : [];
-
-    return { evento, quiosque, consumoItens, textoCompleto: texto };
+  const exportar = () => {
+    baixarCSV(
+      `reservas-${hoje}.csv`,
+      ['Tipo', 'Data', 'Início', 'Fim', 'Local', 'Cliente', 'WhatsApp', 'Pessoas', 'Status', 'Pré-pedido', 'Observações'],
+      filtradas.map((r) => [
+        TIPOS_RESERVA[r.tipo].label,
+        formatarData(r.data_reserva),
+        r.inicio,
+        r.fim,
+        r.local,
+        r.nome,
+        formatarTelefone(r.cliente_whatsapp),
+        r.pessoas || '',
+        STATUS[r.status]?.label || r.status,
+        r.itens.join(', '),
+        r.observacoes || '',
+      ])
+    );
   };
-
-  const abrirWhatsApp = (res) => {
-    const numLimpo = (res.cliente_whatsapp || '').replace(/\D/g, '');
-    if (!numLimpo) {
-      alert('Número de telefone inválido.');
-      return;
-    }
-
-    const phoneComDDI = numLimpo.startsWith('55') ? numLimpo : `55${numLimpo}`;
-    const info = parseDetalhesEvento(res.tipo_evento || res.quadra_nome);
-
-    const mensagem = `Olá, ${res.cliente_nome}! 👋🏼\n\nFalamos do *Resenha Sports Center & Gastrobar*.\nReferente à sua reserva para *${res.data_reserva}* (${info.quiosque || info.evento}).\n\nConfirmamos os detalhes e o seu pedido de consumo?`;
-
-    window.open(`https://wa.me/${phoneComDDI}?text=${encodeURIComponent(mensagem)}`, '_blank');
-  };
-
-  const reservasFiltradas = reservas.filter((r) => {
-    const ehAtiva = r.status === 'pendente' || r.status === 'confirmado' || r.status === 'agendada';
-    return visualizacao === 'ativas' ? ehAtiva : !ehAtiva;
-  });
 
   return (
-    <div className="space-y-6 font-sans text-slate-900">
-      
-      {/* TOPO DO PAINEL */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-        <div>
-          <h1 className="text-2xl font-black">⚙️ Gestão de Agendamentos</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Acompanhe reservas, consulte o quiosque e os itens do cardápio solicitados.</p>
-        </div>
+    <>
+      <Suspense fallback={null}>
+        <LerFiltrosDaUrl aoLer={setFiltroStatus} />
+      </Suspense>
 
-        <div className="flex items-center gap-3">
-          {ultimaAtualizacao && (
-            <span className="text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl flex items-center gap-1">
-              <RefreshCw className={`w-3 h-3 text-emerald-600 ${loading ? 'animate-spin' : ''}`} />
-              Atualizado: {ultimaAtualizacao} (Auto 2m)
-            </span>
-          )}
+      <CabecalhoPagina titulo="Reservas" descricao="Quadras, mesas e quiosques em um só lugar.">
+        <button onClick={carregar} disabled={carregando} className="btn-secundario">
+          <RefreshCw className={`w-4 h-4 ${carregando ? 'animate-spin' : ''}`} /> Atualizar
+        </button>
+        <button onClick={exportar} disabled={!filtradas.length} className="btn-secundario">
+          <Download className="w-4 h-4" /> Exportar CSV
+        </button>
+      </CabecalhoPagina>
 
-          <div className="flex gap-2 bg-slate-100 p-1.5 rounded-2xl">
-            <button
-              onClick={() => setVisualizacao('ativas')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
-                visualizacao === 'ativas' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5" /> Reservas Ativas
-            </button>
-            <button
-              onClick={() => setVisualizacao('historico')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
-                visualizacao === 'historico' ? 'bg-red-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <History className="w-3.5 h-3.5" /> Histórico / Concluídas
-            </button>
+      {/* FILTROS */}
+      <div className="cartao p-4 space-y-3">
+        <div className="flex flex-col lg:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nome, telefone ou local..." className="input pl-10" aria-label="Buscar reservas" />
+            {busca && (
+              <button onClick={() => setBusca('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" aria-label="Limpar busca"><X className="w-4 h-4" /></button>
+            )}
           </div>
+          <select value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="input lg:w-56" aria-label="Período">
+            {Object.entries(PERIODOS).map(([k, p]) => <option key={k} value={k}>{p.label}</option>)}
+          </select>
+        </div>
+        <div className="flex flex-col xl:flex-row gap-3 xl:items-center justify-between">
+          <Segmentado
+            rotulo="Tipo"
+            valor={tipo}
+            aoMudar={setTipo}
+            opcoes={[{ valor: 'todas', label: 'Todas' }, ...Object.entries(TIPOS_RESERVA).map(([k, t]) => ({ valor: k, label: t.plural }))].map((o) => ({ ...o, contagem: contagemTipo(o.valor) }))}
+          />
+          <Segmentado rotulo="Status" valor={filtroStatus} aoMudar={setFiltroStatus} opcoes={FILTROS_STATUS} />
         </div>
       </div>
 
-      {/* SELETOR DE CATEGORIA */}
-      <div className="flex gap-2 border-b border-slate-200 pb-3">
-        <button
-          onClick={() => { setTabelaAtiva('quadras'); setItemExpandidoId(null); }}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-            tabelaAtiva === 'quadras' ? 'bg-slate-900 text-white shadow-sm' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-          }`}
-        >
-          🎾 Quadras Esportivas
-        </button>
-        <button
-          onClick={() => { setTabelaAtiva('mesas'); setItemExpandidoId(null); }}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-            tabelaAtiva === 'mesas' ? 'bg-slate-900 text-white shadow-sm' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-          }`}
-        >
-          🍽️ Mesas Restaurante
-        </button>
-        <button
-          onClick={() => { setTabelaAtiva('quiosques'); setItemExpandidoId(null); }}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-            tabelaAtiva === 'quiosques' ? 'bg-slate-900 text-white shadow-sm' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-          }`}
-        >
-          🛖 Quiosques Eventos
-        </button>
-      </div>
+      {antigasAbertas.length > 0 && periodo !== 'proximos' && periodo !== 'hoje' && periodo !== 'semana' && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-900">
+          <span><strong>{antigasAbertas.length}</strong> reserva(s) confirmada(s) de dias anteriores ainda estão abertas.</span>
+          <button onClick={concluirAntigas} disabled={processando === 'lote'} className="btn-escuro !py-2 !text-xs">
+            {processando === 'lote' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flag className="w-3.5 h-3.5" />} Concluir todas
+          </button>
+        </div>
+      )}
 
-      {/* LISTAGEM DE RESERVAS */}
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
-        {loading && reservas.length === 0 ? (
-          <p className="text-xs text-slate-400 text-center py-6">Carregando agendamentos...</p>
-        ) : reservasFiltradas.length === 0 ? (
-          <p className="text-xs text-slate-500 py-8 text-center">Nenhuma reserva encontrada nesta seção.</p>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {reservasFiltradas.map((item) => {
-              const estaExpandido = itemExpandidoId === item.id;
-              const detalhes = parseDetalhesEvento(item.tipo_evento || item.quadra_nome);
-
-              return (
-                <div key={item.id} className="py-4 space-y-3 transition">
-                  
-                  {/* RESUMO (RESUMIDO) */}
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => toggleExpansao(item.id)}
-                        className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition shrink-0"
-                        title={estaExpandido ? "Recolher detalhes" : "Expandir detalhes, quiosque e consumo"}
-                      >
-                        {estaExpandido ? <ChevronUp className="w-4 h-4 text-red-600" /> : <ChevronDown className="w-4 h-4" />}
-                      </button>
-
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-sm text-slate-900">{item.cliente_nome.split('|')[0]}</span>
-                          <span className="text-xs text-slate-500">({item.cliente_whatsapp})</span>
-                        </div>
-                        <p className="text-xs text-slate-600 mt-0.5">
-                          Data: <strong className="text-slate-900">{item.data_reserva}</strong>
-                          {item.horario_inicio && ` às ${item.horario_inicio}`}
-                          {` | ${detalhes.quiosque !== 'Quiosque Solicitado' ? detalhes.quiosque : detalhes.evento}`}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-full ${
-                        item.status === 'concluido' ? 'bg-slate-100 text-slate-700' :
-                        item.status === 'cancelado' ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'
-                      }`}>
-                        {item.status}
+      {/* LISTA */}
+      {carregando && reservas.length === 0 ? (
+        <div className="cartao p-12 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>
+      ) : filtradas.length === 0 ? (
+        <div className="cartao">
+          <Vazio icone={Inbox} titulo="Nenhuma reserva encontrada">Ajuste os filtros ou o período.</Vazio>
+        </div>
+      ) : (
+        <div className="space-y-5">
+          <p className="text-xs font-semibold text-slate-500">{filtradas.length} reserva(s)</p>
+          {porDia.map(([data, lista]) => (
+            <section key={data}>
+              <h2 className="text-xs font-black uppercase tracking-wider text-slate-500 mb-2 flex items-center gap-2">
+                <span className={data === hoje ? 'text-red-600' : ''}>{rotuloDia(data, hoje)}</span>
+                <span className="font-semibold normal-case tracking-normal text-slate-400">{formatarDataLonga(data)}</span>
+              </h2>
+              <ul className="cartao divide-y divide-slate-100 overflow-hidden">
+                {lista.map((r) => (
+                  <li key={r.chave} className="p-4 flex flex-col md:flex-row md:items-center gap-3 hover:bg-slate-50/60">
+                    <button onClick={() => setSelecionada(r)} className="flex items-start gap-3 flex-1 min-w-0 text-left group">
+                      <span className="w-14 shrink-0 text-center">
+                        <span className="block font-display font-black text-xl text-slate-900 tabular-nums leading-none">{r.inicio || '—'}</span>
+                        {r.fim && r.tipo === 'quadras' && <span className="block text-[10px] text-slate-400 tabular-nums">até {r.fim}</span>}
                       </span>
+                      <span className="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+                        <IconeTipo tipo={r.tipo} />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block font-bold text-slate-900 truncate group-hover:text-red-600">{r.nome}</span>
+                        <span className="block text-xs text-slate-500 truncate">
+                          {r.local}{r.evento && ` · ${r.evento}`} · {formatarTelefone(r.cliente_whatsapp)}
+                        </span>
+                        <span className="flex flex-wrap gap-2 mt-1 text-[11px] text-slate-500">
+                          {r.pessoas && <span className="flex items-center gap-1"><Users className="w-3 h-3" /> {r.pessoas}</span>}
+                          {r.itens.length > 0 && <span className="flex items-center gap-1 text-red-600 font-semibold"><ShoppingBag className="w-3 h-3" /> {r.itens.length} item(ns) no pré-pedido</span>}
+                          {r.observacoes && <span className="flex items-center gap-1 truncate max-w-xs"><StickyNote className="w-3 h-3" /> {r.observacoes}</span>}
+                        </span>
+                      </span>
+                    </button>
 
-                      <button
-                        onClick={() => abrirWhatsApp(item)}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm"
+                    <div className="flex items-center gap-2 md:shrink-0 pl-[5.75rem] md:pl-0">
+                      <BadgeStatus status={r.status} />
+                      <a
+                        href={linkWhatsApp(r.cliente_whatsapp, (r.status === 'confirmado' ? MODELOS_MENSAGEM.confirmacao : MODELOS_MENSAGEM.lembrete).texto(r))}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-2 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                        aria-label={`WhatsApp de ${r.nome}`}
                       >
-                        <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
-                      </button>
-
-                      {visualizacao === 'ativas' && (
-                        <>
-                          <button
-                            onClick={() => alterarStatus(item.id, 'concluido')}
-                            className="bg-slate-900 text-white px-3 py-1.5 rounded-xl text-xs font-bold hover:bg-slate-800 flex items-center gap-1 shadow-sm transition"
-                          >
-                            <CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> Concluir
-                          </button>
-                          <button
-                            onClick={() => alterarStatus(item.id, 'cancelado')}
-                            className="bg-red-50 text-red-700 px-3 py-1.5 rounded-xl text-xs font-bold hover:bg-red-100 flex items-center gap-1 transition"
-                          >
-                            <XCircle className="w-3.5 h-3.5" /> Cancelar
-                          </button>
-                        </>
+                        <MessageCircle className="w-4 h-4" />
+                      </a>
+                      {(r.status === 'pendente' || r.status === 'agendada') && (
+                        <button onClick={() => mudarStatus(r, 'confirmado')} disabled={processando === r.chave} className="btn-escuro !py-1.5 !px-3 !text-xs">
+                          {processando === r.chave ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />} Confirmar
+                        </button>
+                      )}
+                      {r.status === 'confirmado' && r.data_reserva <= hoje && (
+                        <button onClick={() => mudarStatus(r, 'concluido')} disabled={processando === r.chave} className="btn-secundario !py-1.5 !px-3 !text-xs">
+                          <Flag className="w-3.5 h-3.5" /> Concluir
+                        </button>
                       )}
                     </div>
-                  </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      )}
 
-                  {/* CARD EXPANDIDO: QUIOSQUE + CONSUMO + OBSERVAÇÕES */}
-                  {estaExpandido && (
-                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 sm:p-5 text-xs text-slate-800 space-y-4 mt-2">
-                      
-                      {/* INFORMAÇÕES DO CLIENTE */}
-                      <div className="grid sm:grid-cols-4 gap-4 border-b border-slate-200 pb-4">
-                        <div>
-                          <span className="font-bold text-slate-400 uppercase text-[10px] flex items-center gap-1">
-                            <User className="w-3 h-3 text-red-600" /> Cliente
-                          </span>
-                          <p className="font-extrabold text-slate-900 text-sm mt-0.5">{item.cliente_nome.split('|')[0]}</p>
-                        </div>
-
-                        <div>
-                          <span className="font-bold text-slate-400 uppercase text-[10px] flex items-center gap-1">
-                            <Phone className="w-3 h-3 text-red-600" /> WhatsApp
-                          </span>
-                          <p className="font-extrabold text-slate-900 text-sm mt-0.5">{item.cliente_whatsapp}</p>
-                        </div>
-
-                        <div>
-                          <span className="font-bold text-slate-400 uppercase text-[10px] flex items-center gap-1">
-                            <Calendar className="w-3 h-3 text-red-600" /> Data / Horário
-                          </span>
-                          <p className="font-extrabold text-slate-900 text-sm mt-0.5">
-                            {item.data_reserva} {item.horario_inicio ? `(${item.horario_inicio} - ${item.horario_fim || '--'})` : ''}
-                          </p>
-                        </div>
-
-                        <div>
-                          <span className="font-bold text-slate-400 uppercase text-[10px] flex items-center gap-1">
-                            <Users className="w-3 h-3 text-red-600" /> Pessoas / Pax
-                          </span>
-                          <p className="font-extrabold text-slate-900 text-sm mt-0.5">
-                            {item.num_convidados || item.num_pessoas || 'Conforme quiosque'} pessoas
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* BLOCOS DE DESTAQUE: ESPAÇO x CONSUMO */}
-                      <div className="grid sm:grid-cols-2 gap-4">
-                        
-                        {/* QUIOSQUE / ESPAÇO */}
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-2">
-                          <span className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
-                            <Home className="w-4 h-4 text-red-600" /> Local / Quiosque Reservado:
-                          </span>
-                          <div className="bg-slate-900 text-white p-3 rounded-xl font-black text-sm">
-                            {detalhes.quiosque}
-                          </div>
-                          <p className="text-[11px] text-slate-500">
-                            <strong>Tipo de Evento:</strong> {detalhes.evento}
-                          </p>
-                        </div>
-
-                        {/* LISTA DE CONSUMO DO CARDÁPIO */}
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-2">
-                          <span className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
-                            <ShoppingBag className="w-4 h-4 text-red-600" /> Consumo Pré-Pedido (Cardápio):
-                          </span>
-
-                          {detalhes.consumoItens.length > 0 ? (
-                            <div className="flex flex-wrap gap-1.5 pt-1">
-                              {detalhes.consumoItens.map((prod, idx) => (
-                                <span
-                                  key={idx}
-                                  className="bg-emerald-50 text-emerald-900 border border-emerald-200 font-extrabold px-3 py-1 rounded-xl text-xs flex items-center gap-1"
-                                >
-                                  {prod}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-slate-400 italic text-xs bg-slate-50 p-3 rounded-xl border border-slate-100">
-                              Nenhum item do cardápio foi selecionado no pré-pedido.
-                            </p>
-                          )}
-                        </div>
-
-                      </div>
-
-                      {/* CAMPO DE OBSERVAÇÕES INTERNAS DA EQUIPE */}
-                      <div className="space-y-2 pt-2 border-t border-slate-200">
-                        <label className="font-bold text-slate-900 flex items-center gap-1 text-xs">
-                          <FileText className="w-3.5 h-3.5 text-red-600" /> Observações Internas da Equipe (ex: Mesa preferida, exigências do cliente):
-                        </label>
-                        
-                        <div className="flex gap-2">
-                          <textarea
-                            rows="2"
-                            placeholder="Escreva aqui observações internas sobre a reserva..."
-                            value={observacoesTemp[item.id] || ''}
-                            onChange={(e) => setObservacoesTemp({ ...observacoesTemp, [item.id]: e.target.value })}
-                            className="flex-1 bg-white border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-red-600 text-slate-900 font-medium"
-                          ></textarea>
-
-                          <button
-                            onClick={() => handleSalvarObservacao(item.id)}
-                            disabled={salvandoObs}
-                            className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-4 rounded-xl flex items-center gap-1.5 transition text-xs shrink-0 disabled:opacity-50"
-                          >
-                            <Save className="w-3.5 h-3.5 text-red-500" /> Salvar Obs.
-                          </button>
-                        </div>
-                      </div>
-
-                    </div>
-                  )}
-
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
+      {selecionada && <ModalReserva key={selecionada.chave} reserva={selecionada} aoFechar={() => setSelecionada(null)} aoAtualizar={aoAtualizar} />}
+    </>
   );
 }

@@ -38,8 +38,11 @@ export async function contarPendentes() {
 // Gera e baixa um CSV (separador ';' para abrir direto no Excel em pt-BR)
 export function baixarCSV(nomeArquivo, cabecalho, linhas) {
   const escapar = (v) => {
-    const s = String(v ?? '');
-    return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    let s = String(v ?? '');
+    // Nomes e observações vêm do público: neutraliza fórmulas (=, +, -, @) para
+    // que o Excel/Planilhas não as execute ao abrir o arquivo (CSV injection).
+    if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+    return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const conteudo = [cabecalho, ...linhas].map((l) => l.map(escapar).join(';')).join('\n');
   const blob = new Blob(['﻿' + conteudo], { type: 'text/csv;charset=utf-8' });

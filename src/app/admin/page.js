@@ -49,13 +49,22 @@ export default function AdminVisaoGeralPage() {
   };
 
   const confirmarRapido = async (r) => {
+    // A aba é aberta ainda no clique: depois de um `await`, navegadores (Safari
+    // principalmente) tratam window.open como pop-up e bloqueiam.
+    const janela = window.open('', '_blank');
+    if (janela) janela.opener = null;
     setConfirmando(r.chave);
     const { error } = await atualizarReserva(r, { status: 'confirmado' });
     setConfirmando(null);
-    if (error) return toast('Erro ao confirmar: ' + error.message, 'erro');
+    if (error) {
+      janela?.close();
+      return toast('Erro ao confirmar: ' + error.message, 'erro');
+    }
     aoAtualizar({ ...r, status: 'confirmado' });
     toast(`Reserva de ${r.nome} confirmada.`);
-    window.open(linkWhatsApp(r.cliente_whatsapp, MODELOS_MENSAGEM.confirmacao.texto({ ...r, status: 'confirmado' })), '_blank');
+    const url = linkWhatsApp(r.cliente_whatsapp, MODELOS_MENSAGEM.confirmacao.texto({ ...r, status: 'confirmado' }));
+    if (janela) janela.location.href = url;
+    else window.open(url, '_blank', 'noopener');
   };
 
   const copiar = async (texto) => {

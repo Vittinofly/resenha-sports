@@ -9,6 +9,13 @@ export const TIPOS_RESERVA = {
 
 // Código Postgres de violação de constraint de exclusão (anti-overbooking, ver supabase/seguranca.sql)
 export const ERRO_CONFLITO_DB = '23P01';
+// Violação de índice único (quiosque já reservado na data, ver supabase/seguranca.sql)
+export const ERRO_DUPLICADO_DB = '23505';
+
+// Nome do quiosque guardado em `tipo_evento` ("<evento> | <quiosque> | Pedido: [...]")
+export function quiosqueDaReserva(tipoEvento) {
+  return parseDetalhes(tipoEvento).local;
+}
 
 // Mesas e quiosques guardam local + pré-pedido em `tipo_evento` no formato:
 // "<evento> | <local> | Pedido: [2x Item, 1x Item]"

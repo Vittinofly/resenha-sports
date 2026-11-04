@@ -15,19 +15,22 @@ function partesDia(dataISO) {
 }
 
 // Chips com os próximos `dias` dias + campo para escolher qualquer outra data.
-export default function SeletorData({ valor, aoMudar, dias = 14, maxDias = 120 }) {
+// `aPartirDe` = antecedência mínima em dias (0 = a partir de hoje).
+export default function SeletorData({ valor, aoMudar, dias = 14, maxDias = 120, aPartirDe = 0 }) {
   const hoje = useHoje();
 
   if (!hoje) {
     return <div className="h-[74px] rounded-2xl bg-slate-100 animate-pulse" aria-busy="true" />;
   }
 
-  const opcoes = Array.from({ length: dias }, (_, i) => somarDias(hoje, i));
+  const minimo = somarDias(hoje, aPartirDe);
+  const opcoes = Array.from({ length: dias }, (_, i) => somarDias(minimo, i));
   const foraDaLista = valor && !opcoes.includes(valor);
+  const rotuloRelativo = (data, semana) => (data === hoje ? 'Hoje' : data === somarDias(hoje, 1) ? 'Amanhã' : semana);
 
   return (
     <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 [scrollbar-width:thin]" role="radiogroup" aria-label="Data">
-      {opcoes.map((data, i) => {
+      {opcoes.map((data) => {
         const { semana, dia, mes } = partesDia(data);
         const ativo = valor === data;
         return (
@@ -42,7 +45,7 @@ export default function SeletorData({ valor, aoMudar, dias = 14, maxDias = 120 }
             }`}
           >
             <span className={`block text-[10px] font-bold uppercase ${ativo ? 'text-red-100' : 'text-slate-400'}`}>
-              {i === 0 ? 'Hoje' : i === 1 ? 'Amanhã' : semana}
+              {rotuloRelativo(data, semana)}
             </span>
             <span className="block font-display font-black text-2xl leading-none mt-0.5">{dia}</span>
             <span className={`block text-[10px] font-semibold uppercase ${ativo ? 'text-red-100' : 'text-slate-400'}`}>{mes}</span>
@@ -59,10 +62,10 @@ export default function SeletorData({ valor, aoMudar, dias = 14, maxDias = 120 }
         <span className="text-[10px] font-bold uppercase mt-1">{foraDaLista ? valor.split('-').reverse().slice(0, 2).join('/') : 'Outra data'}</span>
         <input
           type="date"
-          min={hoje}
+          min={minimo}
           max={somarDias(hoje, maxDias)}
           value={valor || ''}
-          onChange={(e) => e.target.value && aoMudar(e.target.value)}
+          onChange={(e) => e.target.value && e.target.value >= minimo && aoMudar(e.target.value)}
           className="absolute inset-0 opacity-0 cursor-pointer"
           aria-label="Escolher outra data"
         />

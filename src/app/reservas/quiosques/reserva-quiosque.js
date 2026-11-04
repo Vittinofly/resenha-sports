@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, PartyPopper, ShoppingBag, Users } from 'lucide-react';
+import { Loader2, Minus, PartyPopper, Plus, ShoppingBag, Users } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { QUIOSQUES, TIPOS_EVENTO } from '@/lib/config';
 import { useHoje, useContatoSalvo } from '@/lib/hooks';
 import { useCardapioDisponivel } from '@/lib/cardapio';
 import { formatarDataLonga, formatarMoeda, somarDias, telefoneValido } from '@/lib/formatadores';
-import { montarDetalhes, mensagemSolicitacao, resumirPedido } from '@/lib/reservas';
+import { montarDetalhes, mensagemSolicitacao, resumirPedido, quiosqueDaReserva, ERRO_DUPLICADO_DB } from '@/lib/reservas';
 import { CamposContato } from '@/components/campos';
 import SeletorData from '@/components/seletor-data';
 import PrePedido from '@/components/pre-pedido';
@@ -23,7 +23,7 @@ export default function ReservaQuiosque() {
   const [dataEscolhida, setDataEscolhida] = useState('');
   const [quiosqueId, setQuiosqueId] = useState(QUIOSQUES[0].id);
   const [tipoEvento, setTipoEvento] = useState(TIPOS_EVENTO[0]);
-  const [convidados, setConvidados] = useState(20);
+  const [convidadosTexto, setConvidadosTexto] = useState('20');
   const [itens, setItens] = useState({});
   const [contato, setContato] = useState({ cliente_nome: '', cliente_whatsapp: '' });
   const [ocupados, setOcupados] = useState({ data: '', nomes: [] });
@@ -36,7 +36,9 @@ export default function ReservaQuiosque() {
   const data = dataEscolhida || minimo;
   const quiosque = QUIOSQUES.find((q) => q.id === quiosqueId);
   const pedido = resumirPedido(itens, cardapio);
+  const convidados = Number(convidadosTexto) || 0;
   const acimaCapacidade = convidados > quiosque.capacidade;
+  const ajustarConvidados = (delta) => setConvidadosTexto(String(Math.min(999, Math.max(1, convidados + delta))));
 
   useEffect(() => {
     if (!data) return;
@@ -48,7 +50,8 @@ export default function ReservaQuiosque() {
       .neq('status', 'cancelado')
       .then(({ data: rows, error }) => {
         if (!ativo) return;
-        const nomes = error ? [] : QUIOSQUES.filter((q) => (rows || []).some((r) => (r.tipo_evento || '').includes(q.nome))).map((q) => q.id);
+        const reservados = new Set((rows || []).map((r) => quiosqueDaReserva(r.tipo_evento)));
+        const nomes = error ? [] : QUIOSQUES.filter((q) => reservados.has(q.nome)).map((q) => q.id);
         setOcupados({ data, nomes });
       });
     return () => {
@@ -62,6 +65,7 @@ export default function ReservaQuiosque() {
     e.preventDefault();
     setMostrarErros(true);
     if (estaOcupado(quiosqueId)) return toast('Esse quiosque já está reservado nessa data. Escolha outro quiosque ou dia.', 'erro');
+    if (convidados < 1) return toast('Informe quantos convidados você espera.', 'erro');
     if (acimaCapacidade) return toast(`O ${quiosque.curto} comporta até ${quiosque.capacidade} pessoas.`, 'erro');
     if (!telefoneValido(contato.cliente_whatsapp)) return toast('Confira o número de WhatsApp (DDD + número).', 'erro');
 
@@ -80,7 +84,12 @@ export default function ReservaQuiosque() {
     setEnviando(false);
 
     if (error) {
-      toast('Não foi possível enviar sua reserva. Tente novamente ou fale conosco pelo WhatsApp.', 'erro');
+      if (error.code === ERRO_DUPLICADO_DB) {
+        setOcupados((atual) => ({ data, nomes: [...(atual.data === data ? atual.nomes : []), quiosqueId] }));
+        toast('Esse quiosque acabou de ser reservado para essa data. Escolha outro quiosque ou dia.', 'erro');
+      } else {
+        toast('Não foi possível enviar sua reserva. Tente novamente ou fale conosco pelo WhatsApp.', 'erro');
+      }
       return;
     }
 
@@ -130,7 +139,7 @@ export default function ReservaQuiosque() {
           <div>
             <span className="rotulo">Data do evento</span>
             {minimo ? (
-              <SeletorData valor={data} aoMudar={setDataEscolhida} dias={14} maxDias={365} />
+              <SeletorData valor={data} aoMudar={setDataEscolhida} dias={14} maxDias={365} aPartirDe={1} />
             ) : (
               <div className="h-[74px] rounded-2xl bg-slate-100 animate-pulse" />
             )}
@@ -166,6 +175,12 @@ export default function ReservaQuiosque() {
             })}
           </div>
 
+          {estaOcupado(quiosqueId) && (
+            <p role="alert" className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-xl p-3">
+              O {quiosque.curto} já está reservado nessa data. Escolha outro quiosque ou outro dia.
+            </p>
+          )}
+
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="tipo-evento" className="rotulo">Tipo de evento</label>
@@ -175,16 +190,25 @@ export default function ReservaQuiosque() {
             </div>
             <div>
               <label htmlFor="convidados" className="rotulo">Convidados</label>
-              <input
-                id="convidados"
-                type="number"
-                min={1}
-                max={quiosque.capacidade}
-                required
-                value={convidados}
-                onChange={(e) => setConvidados(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                className={`input ${acimaCapacidade ? 'ring-2 ring-red-500' : ''}`}
-              />
+              <div className={`flex items-center gap-1 bg-slate-50 border rounded-xl p-1 ${acimaCapacidade ? 'border-red-400 ring-2 ring-red-500/30' : 'border-slate-200'}`}>
+                <button type="button" onClick={() => ajustarConvidados(-5)} disabled={convidados <= 1} className="w-10 h-9 rounded-lg hover:bg-white disabled:opacity-30 flex items-center justify-center" aria-label="Menos 5 convidados">
+                  <Minus className="w-4 h-4" />
+                </button>
+                <input
+                  id="convidados"
+                  type="text"
+                  inputMode="numeric"
+                  required
+                  value={convidadosTexto}
+                  onChange={(e) => setConvidadosTexto(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                  onBlur={() => !convidados && setConvidadosTexto('1')}
+                  aria-invalid={acimaCapacidade || undefined}
+                  className="flex-1 min-w-0 bg-transparent text-center font-display font-black text-xl tabular-nums focus:outline-none"
+                />
+                <button type="button" onClick={() => ajustarConvidados(5)} className="w-10 h-9 rounded-lg hover:bg-white flex items-center justify-center" aria-label="Mais 5 convidados">
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
               <p className={`text-[11px] mt-1 ${acimaCapacidade ? 'text-red-600 font-semibold' : 'text-slate-500'}`}>
                 {acimaCapacidade ? `Acima da capacidade (${quiosque.capacidade}). Escolha um quiosque maior.` : `Capacidade: ${quiosque.capacidade} pessoas.`}
               </p>
@@ -218,7 +242,7 @@ export default function ReservaQuiosque() {
           <div className="flex justify-between gap-3"><dt className="text-slate-500">Quiosque</dt><dd className="font-bold text-right">{quiosque.curto}</dd></div>
           <div className="flex justify-between gap-3"><dt className="text-slate-500">Data</dt><dd className="font-bold text-right">{data ? formatarDataLonga(data) : '—'}</dd></div>
           <div className="flex justify-between gap-3"><dt className="text-slate-500">Evento</dt><dd className="font-bold">{tipoEvento}</dd></div>
-          <div className="flex justify-between gap-3"><dt className="text-slate-500">Convidados</dt><dd className="font-bold">{convidados}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-slate-500">Convidados</dt><dd className="font-bold">{convidados || '—'}</dd></div>
         </dl>
         {pedido.linhas.length > 0 && (
           <div className="border-t border-slate-100 pt-3">

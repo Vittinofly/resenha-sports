@@ -40,9 +40,18 @@ begin
     execute format('drop policy if exists "equipe_tudo" on public.%I', t);
     execute format('create policy "equipe_tudo" on public.%I for all to authenticated using (true) with check (true)', t);
 
-    -- Visitante só pode CRIAR reserva pendente (nunca confirmar/alterar/apagar)
+    -- Visitante só pode CRIAR reserva pendente (nunca confirmar/alterar/apagar),
+    -- para hoje em diante, com nome e WhatsApp (DDD + número) válidos e sem
+    -- preencher as observações internas da equipe.
     execute format('drop policy if exists "publico_cria_pendente" on public.%I', t);
-    execute format($p$create policy "publico_cria_pendente" on public.%I for insert to anon with check (status = 'pendente')$p$, t);
+    execute format($p$create policy "publico_cria_pendente" on public.%I for insert to anon with check (
+      status = 'pendente'
+      and data_reserva >= (now() at time zone 'America/Sao_Paulo')::date
+      and data_reserva <= (now() at time zone 'America/Sao_Paulo')::date + 400
+      and char_length(btrim(cliente_nome)) between 2 and 80
+      and cliente_whatsapp ~ '^[0-9]{10,11}$'
+      and coalesce(observacoes, '') = ''
+    )$p$, t);
   end loop;
 end $$;
 
@@ -81,6 +90,13 @@ alter table public.reservas_quadras
     quadra_nome with =,
     tsrange(data_reserva + horario_inicio, data_reserva + horario_fim, '[)') with &&
   ) where (status <> 'cancelado');
+
+-- Quiosques: no máximo um evento ativo por quiosque e por dia. O nome do
+-- quiosque é o 2º trecho de tipo_evento ("<evento> | <quiosque> | Pedido: [...]").
+-- O site trata o erro (código 23505). Se houver duplicidades antigas, cancele-as antes.
+create unique index if not exists reservas_quiosques_um_evento_por_dia
+  on public.reservas_quiosques (data_reserva, (btrim(split_part(tipo_evento, '|', 2))))
+  where status <> 'cancelado';
 
 -- ---------- Validações básicas de dados ----------
 alter table public.reservas_quadras drop constraint if exists reservas_quadras_horario_valido;

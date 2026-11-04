@@ -77,7 +77,15 @@ export default function AdminAgendaQuadrasPage() {
     atualizarPendentes();
   };
 
-  const abrirNovo = (quadra = QUADRAS[0].nome, inicio = '08:00') => setForm(formVazio(quadra, data, inicio));
+  // Sem horário informado, sugere o primeiro horário livre (e ainda não passado) da quadra
+  const primeiroLivre = (quadra) =>
+    HORARIOS_QUADRA.find(
+      (h) =>
+        !(data === hoje && minutoAtual >= 0 && horaParaMinutos(h) <= minutoAtual) &&
+        !reservas.some((r) => r.quadra_nome === quadra && intervalosSobrepoem(h, minutosParaHora(horaParaMinutos(h) + 60), r.inicio, r.fim))
+    ) || HORARIOS_QUADRA[0];
+
+  const abrirNovo = (quadra = QUADRAS[0].nome, inicio = primeiroLivre(quadra)) => setForm(formVazio(quadra, data, inicio));
 
   const criarReserva = async (e) => {
     e.preventDefault();
@@ -190,7 +198,7 @@ export default function AdminAgendaQuadrasPage() {
             <input type="date" value={data} onChange={(e) => e.target.value && setDataEscolhida(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" />
           </label>
         </div>
-        <button onClick={() => abrirNovo()} disabled={!data} className="btn-primario">
+        <button onClick={() => abrirNovo(quadraMobile)} disabled={!data} className="btn-primario">
           <Plus className="w-4 h-4" /> Agendar no balcão
         </button>
       </CabecalhoPagina>

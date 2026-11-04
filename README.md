@@ -12,9 +12,13 @@ cp .env.example .env.local   # preencha as variáveis
 npm run dev                  # http://localhost:3000
 ```
 
-Antes de publicar, rode **`supabase/seguranca.sql`** no SQL Editor do Supabase e desative o cadastro público de usuários (detalhes no próprio arquivo). Sem isso, a chave pública permite ler e alterar qualquer reserva.
+Antes de publicar, no painel do Supabase:
 
-> **Atenção (Windows):** o build do Turbopack falha se o caminho da pasta tiver `#` (ex.: `C:\projetos\#Empresas\...`), com o erro `webpack loader path "C:\\projetos\\" is outside configured roots`. Renomeie a pasta (ex.: `Empresas`) para rodar `npm run build` localmente. Na Vercel isso não acontece.
+1. Rode **`supabase/seguranca.sql`** no SQL Editor (é idempotente — rode de novo sempre que o arquivo mudar). Sem isso, a chave pública permite ler e alterar qualquer reserva.
+2. Em **Authentication → Providers → Email**, desative *Allow new users to sign up* e cadastre a equipe manualmente em **Authentication → Users**.
+3. Em **Authentication → URL Configuration**, preencha *Site URL* com o domínio e adicione `https://SEU-DOMINIO/login/nova-senha` (e `http://localhost:3000/login/nova-senha` para testes) em *Redirect URLs*. É para onde aponta o link de "Esqueci minha senha".
+
+> **Atenção (Windows):** o build do Turbopack falha se o caminho da pasta tiver `#` (ex.: `C:\projetos\#Empresas\...`), com o erro `webpack loader path "C:\\projetos\\" is outside configured roots`. Renomeie a pasta (ex.: `Empresas`) ou copie o projeto para um caminho sem `#` para rodar `npm run build` localmente (`subst` não resolve, pois o Node segue o caminho real). Na Vercel isso não acontece.
 
 ## Variáveis de ambiente
 
@@ -35,18 +39,21 @@ src/
     page.js                 Landing page (conversão: serviços, como funciona, eventos, FAQ)
     cardapio/               Cardápio público com busca e categorias
     reservas/quadras|mesas|quiosques/   Fluxos de reserva (page.js = servidor + metadados, reserva-*.js = formulário)
-    login/                  Acesso da equipe
+    login/                  Acesso da equipe + "esqueci minha senha"
+      nova-senha/           Criar nova senha (link do e-mail) ou trocar a senha logado
     admin/
       page.js               Visão geral: pendências, agenda do dia, ocupação, kit de divulgação
       quadras/              Agenda visual (horas × quadras) + agendamento de balcão
-      reservas/             Central única de reservas: filtros, busca, ações rápidas, CSV
+      reservas/             Central única de reservas: filtros, busca, ações rápidas, CSV, nova reserva
       clientes/             Mini-CRM gerado das reservas + campanhas por WhatsApp
       cardapio/             Cadastro, edição, pausa e exclusão de itens
-    sitemap.js, robots.js, manifest.js, opengraph-image.js
+    error.js, global-error.js, not-found.js   Telas de erro
+    icon.js, apple-icon.js, manifest.js       Ícone da marca e PWA (instalável no celular)
+    sitemap.js, robots.js, opengraph-image.js SEO
   components/               UI compartilhada (header, rodapé, modal, toasts, pré-pedido...)
-  components/admin/         Shell do painel, modal de reserva, indicadores
+  components/admin/         Shell do painel, modal de reserva (com remarcação), novo agendamento, indicadores
   lib/                      config, formatadores (datas/moeda/telefone), regras de reserva, hooks
-supabase/seguranca.sql      RLS, anti-overbooking e colunas opcionais
+supabase/seguranca.sql      RLS, anti-overbooking (quadras e quiosques), validações e colunas opcionais
 ```
 
 ## Modelo de dados (Supabase)
@@ -65,8 +72,10 @@ supabase/seguranca.sql      RLS, anti-overbooking e colunas opcionais
 1. Cliente solicita a reserva no site (status **pendente**) e pode enviar o resumo pelo WhatsApp.
 2. O painel avisa novas solicitações (contador no menu e no título da aba, atualização a cada minuto).
 3. A equipe confirma com um clique — o WhatsApp abre com a mensagem de confirmação pronta.
-4. Depois do uso, marca como **concluída** (há ação em lote para reservas antigas).
-5. Em **Clientes**, filtre os "sumidos" e dispare mensagens personalizadas para trazê-los de volta.
+4. Precisa mudar algo? No detalhe da reserva, **Remarcar** troca data, horário, quadra/quiosque ou nº de pessoas (com checagem de conflito) e já oferece a mensagem "Avisar remarcação".
+5. Reservas por telefone ou no balcão entram em **Agendar no balcão / Nova reserva** (quadra, mesa ou quiosque), já confirmadas.
+6. Depois do uso, marca como **concluída** (há ação em lote para reservas antigas).
+7. Em **Clientes**, filtre os "sumidos" e dispare mensagens personalizadas para trazê-los de volta.
 
 ## Scripts
 

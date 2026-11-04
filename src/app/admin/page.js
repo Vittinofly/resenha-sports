@@ -12,6 +12,7 @@ import { useFeedback } from '@/components/feedback';
 import { useAdmin } from '@/components/admin/shell';
 import { BadgeStatus, CabecalhoPagina, IconeTipo, Indicador, Vazio } from '@/components/admin/ui';
 import ModalReserva from '@/components/admin/modal-reserva';
+import ModalNovaReserva from '@/components/admin/nova-reserva';
 
 const LINKS_DIVULGACAO = [
   { rotulo: 'Reservar quadra', caminho: '/reservas/quadras' },
@@ -28,6 +29,7 @@ export default function AdminVisaoGeralPage() {
   const [carregando, setCarregando] = useState(true);
   const [selecionada, setSelecionada] = useState(null);
   const [confirmando, setConfirmando] = useState(null);
+  const [novo, setNovo] = useState(null);
 
   const carregar = useCallback(async () => {
     if (!hoje) return;
@@ -105,9 +107,9 @@ export default function AdminVisaoGeralPage() {
         <button onClick={carregar} disabled={carregando} className="btn-secundario">
           <RefreshCw className={`w-4 h-4 ${carregando ? 'animate-spin' : ''}`} /> Atualizar
         </button>
-        <Link href="/admin/quadras" className="btn-primario">
+        <button onClick={() => setNovo({ tipo: 'quadras', data_reserva: hoje })} disabled={!hoje} className="btn-primario">
           <CalendarCheck className="w-4 h-4" /> Agendar no balcão
-        </Link>
+        </button>
       </CabecalhoPagina>
 
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
@@ -248,6 +250,7 @@ export default function AdminVisaoGeralPage() {
       </div>
 
       {selecionada && <ModalReserva key={selecionada.chave} reserva={selecionada} aoFechar={() => setSelecionada(null)} aoAtualizar={aoAtualizar} />}
+      {novo && <ModalNovaReserva inicial={novo} aoFechar={() => setNovo(null)} aoCriar={() => carregar()} />}
     </>
   );
 }

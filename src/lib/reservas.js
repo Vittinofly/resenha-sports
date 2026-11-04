@@ -94,6 +94,11 @@ export const MODELOS_MENSAGEM = {
     texto: (r) =>
       `Oi, ${primeiroNome(r.nome)}! Passando para lembrar da sua reserva no *${NEGOCIO.nomeCurto}*:\n📍 ${descreverReserva(r)}\n\nPodemos confirmar sua presença?`,
   },
+  remarcacao: {
+    label: 'Avisar remarcação',
+    texto: (r) =>
+      `Olá, ${primeiroNome(r.nome)}! Aqui é do *${NEGOCIO.nome}*.\nSua reserva foi *remarcada* conforme combinado:\n📍 ${descreverReserva(r)}\n\nQualquer dúvida é só chamar por aqui.`,
+  },
   indisponivel: {
     label: 'Horário indisponível',
     texto: (r) =>

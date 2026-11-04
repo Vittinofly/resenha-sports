@@ -3,17 +3,15 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ChevronLeft, ChevronRight, Loader2, Plus, CalendarDays, Clock, CheckCircle2, Gauge } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import { useHoje, useMinutoAtual } from '@/lib/hooks';
 import { buscarReservas } from '@/lib/admin';
-import { QUADRAS, HORARIOS_QUADRA, DURACOES, ABERTURA_QUADRAS, FECHAMENTO_QUADRAS } from '@/lib/config';
-import { ERRO_CONFLITO_DB } from '@/lib/reservas';
-import { apenasDigitos, formatarDataLonga, formatarTelefone, horaParaMinutos, intervalosSobrepoem, minutosParaHora, somarDias, telefoneValido, hhmm } from '@/lib/formatadores';
+import { QUADRAS, HORARIOS_QUADRA, ABERTURA_QUADRAS, FECHAMENTO_QUADRAS } from '@/lib/config';
+import { formatarDataLonga, horaParaMinutos, intervalosSobrepoem, minutosParaHora, somarDias } from '@/lib/formatadores';
 import { useFeedback } from '@/components/feedback';
 import { useAdmin } from '@/components/admin/shell';
 import { CabecalhoPagina, Indicador } from '@/components/admin/ui';
 import ModalReserva from '@/components/admin/modal-reserva';
-import Modal from '@/components/modal';
+import ModalNovaReserva from '@/components/admin/nova-reserva';
 
 const ALTURA_HORA = 56; // px por linha da grade
 const CORES_STATUS = {
@@ -31,16 +29,6 @@ function LerDataDaUrl({ aoLer }) {
   return null;
 }
 
-const formVazio = (quadra, data, inicio) => ({
-  cliente_nome: '',
-  cliente_whatsapp: '',
-  quadra_nome: quadra,
-  data_reserva: data,
-  horario_inicio: inicio,
-  duracao: 1,
-  observacoes: '',
-});
-
 export default function AdminAgendaQuadrasPage() {
   const hoje = useHoje();
   const minutoAtual = useMinutoAtual();
@@ -50,8 +38,7 @@ export default function AdminAgendaQuadrasPage() {
   const [reservas, setReservas] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [selecionada, setSelecionada] = useState(null);
-  const [form, setForm] = useState(null);
-  const [salvando, setSalvando] = useState(false);
+  const [novo, setNovo] = useState(null);
   const [quadraMobile, setQuadraMobile] = useState(QUADRAS[0].nome);
 
   const data = dataEscolhida || hoje;
@@ -73,7 +60,9 @@ export default function AdminAgendaQuadrasPage() {
   }, [carregar]);
 
   const aoAtualizar = (nova) => {
-    setReservas((lista) => (nova.status === 'cancelado' ? lista.filter((r) => r.chave !== nova.chave) : lista.map((r) => (r.chave === nova.chave ? nova : r))));
+    // Cancelada ou remarcada para outro dia: sai da grade deste dia
+    const sai = nova.status === 'cancelado' || nova.data_reserva !== data;
+    setReservas((lista) => (sai ? lista.filter((r) => r.chave !== nova.chave) : lista.map((r) => (r.chave === nova.chave ? nova : r))));
     atualizarPendentes();
   };
 
@@ -85,47 +74,11 @@ export default function AdminAgendaQuadrasPage() {
         !reservas.some((r) => r.quadra_nome === quadra && intervalosSobrepoem(h, minutosParaHora(horaParaMinutos(h) + 60), r.inicio, r.fim))
     ) || HORARIOS_QUADRA[0];
 
-  const abrirNovo = (quadra = QUADRAS[0].nome, inicio = primeiroLivre(quadra)) => setForm(formVazio(quadra, data, inicio));
+  const abrirNovo = (quadra = QUADRAS[0].nome, inicio = primeiroLivre(quadra)) =>
+    setNovo({ tipo: 'quadras', data_reserva: data, quadra_nome: quadra, inicio });
 
-  const criarReserva = async (e) => {
-    e.preventDefault();
-    if (!telefoneValido(form.cliente_whatsapp)) return toast('WhatsApp inválido (DDD + número).', 'erro');
-
-    const fim = minutosParaHora(horaParaMinutos(form.horario_inicio) + form.duracao * 60);
-    if (horaParaMinutos(fim) > FECHAMENTO_QUADRAS * 60) return toast(`O término não pode passar das ${FECHAMENTO_QUADRAS}:00.`, 'erro');
-
-    setSalvando(true);
-    const { data: existentes } = await supabase
-      .from('reservas_quadras')
-      .select('horario_inicio, horario_fim, cliente_nome')
-      .eq('quadra_nome', form.quadra_nome)
-      .eq('data_reserva', form.data_reserva)
-      .neq('status', 'cancelado');
-
-    const conflito = existentes?.find((r) => intervalosSobrepoem(form.horario_inicio, fim, hhmm(r.horario_inicio), hhmm(r.horario_fim)));
-    if (conflito) {
-      setSalvando(false);
-      return toast(`Conflito com a reserva de ${conflito.cliente_nome} (${hhmm(conflito.horario_inicio)}–${hhmm(conflito.horario_fim)}).`, 'erro');
-    }
-
-    const { error } = await supabase.from('reservas_quadras').insert([
-      {
-        cliente_nome: form.cliente_nome.trim(),
-        cliente_whatsapp: form.cliente_whatsapp,
-        quadra_nome: form.quadra_nome,
-        data_reserva: form.data_reserva,
-        horario_inicio: form.horario_inicio,
-        horario_fim: fim,
-        observacoes: form.observacoes.trim(),
-        status: 'confirmado',
-      },
-    ]);
-    setSalvando(false);
-
-    if (error) return toast(error.code === ERRO_CONFLITO_DB ? 'Esse horário acabou de ser ocupado.' : 'Erro ao agendar: ' + error.message, 'erro');
-    toast('Agendamento criado e confirmado.');
-    setForm(null);
-    if (form.data_reserva !== data) setDataEscolhida(form.data_reserva);
+  const aoCriar = (r) => {
+    if (r.data_reserva !== data) setDataEscolhida(r.data_reserva);
     else carregar();
   };
 
@@ -274,54 +227,7 @@ export default function AdminAgendaQuadrasPage() {
 
       {selecionada && <ModalReserva key={selecionada.chave} reserva={selecionada} aoFechar={() => setSelecionada(null)} aoAtualizar={aoAtualizar} />}
 
-      <Modal aberto={!!form} aoFechar={() => setForm(null)} titulo="Agendar no balcão" icone={<Plus className="w-5 h-5 text-red-600" />}>
-        {form && (
-          <form onSubmit={criarReserva} className="space-y-4">
-            <div>
-              <label htmlFor="ag-nome" className="rotulo">Nome do cliente *</label>
-              <input id="ag-nome" required autoFocus value={form.cliente_nome} onChange={(e) => setForm({ ...form, cliente_nome: e.target.value })} className="input" placeholder="Ex.: João da Silva" />
-            </div>
-            <div>
-              <label htmlFor="ag-fone" className="rotulo">WhatsApp *</label>
-              <input id="ag-fone" required type="tel" inputMode="numeric" value={formatarTelefone(form.cliente_whatsapp)} onChange={(e) => setForm({ ...form, cliente_whatsapp: apenasDigitos(e.target.value).slice(0, 11) })} className="input" placeholder="(11) 99999-9999" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="ag-quadra" className="rotulo">Quadra</label>
-                <select id="ag-quadra" value={form.quadra_nome} onChange={(e) => setForm({ ...form, quadra_nome: e.target.value })} className="input">
-                  {QUADRAS.map((q) => <option key={q.id} value={q.nome}>{q.curto} — {q.esportes}</option>)}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="ag-data" className="rotulo">Data</label>
-                <input id="ag-data" type="date" required value={form.data_reserva} onChange={(e) => setForm({ ...form, data_reserva: e.target.value })} className="input" />
-              </div>
-              <div>
-                <label htmlFor="ag-inicio" className="rotulo">Início</label>
-                <select id="ag-inicio" value={form.horario_inicio} onChange={(e) => setForm({ ...form, horario_inicio: e.target.value })} className="input">
-                  {HORARIOS_QUADRA.map((h) => <option key={h}>{h}</option>)}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="ag-duracao" className="rotulo">Duração</label>
-                <select id="ag-duracao" value={form.duracao} onChange={(e) => setForm({ ...form, duracao: Number(e.target.value) })} className="input">
-                  {DURACOES.map((d) => <option key={d} value={d}>{d} hora{d > 1 ? 's' : ''}</option>)}
-                </select>
-              </div>
-            </div>
-            <div>
-              <label htmlFor="ag-obs" className="rotulo">Observação interna</label>
-              <textarea id="ag-obs" rows={2} value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} className="input resize-none" placeholder="Ex.: pago no balcão via Pix" />
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={() => setForm(null)} className="btn-secundario">Cancelar</button>
-              <button type="submit" disabled={salvando} className="btn-primario">
-                {salvando && <Loader2 className="w-4 h-4 animate-spin" />} Confirmar agendamento
-              </button>
-            </div>
-          </form>
-        )}
-      </Modal>
+      {novo && <ModalNovaReserva inicial={novo} tipoFixo aoFechar={() => setNovo(null)} aoCriar={aoCriar} />}
     </>
   );
 }

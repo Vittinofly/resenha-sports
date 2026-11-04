@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, CalendarRange, ListChecks, Users, UtensilsCrossed, LogOut, Loader2, ExternalLink } from 'lucide-react';
+import { LayoutDashboard, CalendarRange, ListChecks, Users, UtensilsCrossed, LogOut, Loader2, ExternalLink, KeyRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { contarPendentes } from '@/lib/admin';
 import { useFeedback } from '@/components/feedback';
@@ -131,9 +131,14 @@ export default function AdminShell({ children }) {
         <aside className="bg-slate-950 text-slate-300 lg:min-h-screen lg:sticky lg:top-0 lg:h-screen flex flex-col">
           <div className="px-4 py-4 flex items-center justify-between lg:block">
             <Link href="/admin"><Logo claro subtitulo="Painel da equipe" /></Link>
-            <button onClick={() => sair()} className="lg:hidden p-2 rounded-lg text-slate-400 hover:text-white" aria-label="Sair">
-              <LogOut className="w-5 h-5" />
-            </button>
+            <span className="flex lg:hidden">
+              <Link href="/login/nova-senha" className="p-2 rounded-lg text-slate-400 hover:text-white" aria-label="Alterar senha">
+                <KeyRound className="w-5 h-5" />
+              </Link>
+              <button onClick={() => sair()} className="p-2 rounded-lg text-slate-400 hover:text-white" aria-label="Sair">
+                <LogOut className="w-5 h-5" />
+              </button>
+            </span>
           </div>
 
           <nav className="flex lg:flex-col gap-1 px-2 pb-2 lg:px-3 overflow-x-auto [scrollbar-width:none]" aria-label="Admin">
@@ -162,6 +167,9 @@ export default function AdminShell({ children }) {
           <div className="hidden lg:block mt-auto p-3 space-y-1 border-t border-white/10">
             <Link href="/" target="_blank" className="flex items-center gap-3 px-3 py-2 rounded-xl text-sm hover:bg-white/5 hover:text-white">
               <ExternalLink className="w-4 h-4" /> Ver site
+            </Link>
+            <Link href="/login/nova-senha" className="flex items-center gap-3 px-3 py-2 rounded-xl text-sm hover:bg-white/5 hover:text-white">
+              <KeyRound className="w-4 h-4" /> Alterar senha
             </Link>
             <button onClick={() => sair()} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm hover:bg-white/5 hover:text-white">
               <LogOut className="w-4 h-4" /> Sair

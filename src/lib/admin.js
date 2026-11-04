@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
-import { TIPOS_RESERVA, normalizarReserva, ordenarPorDataHora } from '@/lib/reservas';
+import { TIPOS_RESERVA, normalizarReserva, ordenarPorDataHora, quiosqueDaReserva } from '@/lib/reservas';
 import { STATUS_ATIVOS } from '@/lib/config';
+import { hhmm, intervalosSobrepoem } from '@/lib/formatadores';
 
 // Busca reservas das três tabelas, já normalizadas e ordenadas por data/hora.
 export async function buscarReservas({ tipos = Object.keys(TIPOS_RESERVA), de, ate, somenteAtivas = false, status, limite = 1000 } = {}) {
@@ -24,6 +25,33 @@ export async function buscarReservas({ tipos = Object.keys(TIPOS_RESERVA), de, a
 
 export function atualizarReserva(reserva, campos) {
   return supabase.from(TIPOS_RESERVA[reserva.tipo].tabela).update(campos).eq('id', reserva.id);
+}
+
+// Verifica se os campos de uma reserva (já no formato do banco) colidem com
+// outra reserva ativa. Retorna { mensagem } descrevendo o conflito, { erro } se
+// a consulta falhar, ou {} quando está livre. Mesas não têm controle de lotação.
+export async function verificarDisponibilidade(tipo, campos, ignorarId = null) {
+  if (tipo === 'mesas') return {};
+
+  let consulta = supabase
+    .from(TIPOS_RESERVA[tipo].tabela)
+    .select(tipo === 'quadras' ? 'id, cliente_nome, quadra_nome, horario_inicio, horario_fim' : 'id, cliente_nome, tipo_evento')
+    .eq('data_reserva', campos.data_reserva)
+    .neq('status', 'cancelado');
+  if (tipo === 'quadras') consulta = consulta.eq('quadra_nome', campos.quadra_nome);
+  if (ignorarId != null) consulta = consulta.neq('id', ignorarId);
+
+  const { data, error } = await consulta;
+  if (error) return { erro: error };
+
+  if (tipo === 'quadras') {
+    const c = data.find((r) => intervalosSobrepoem(campos.horario_inicio, campos.horario_fim, hhmm(r.horario_inicio), hhmm(r.horario_fim)));
+    return c ? { mensagem: `Conflito com a reserva de ${c.cliente_nome} (${hhmm(c.horario_inicio)}–${hhmm(c.horario_fim)}).` } : {};
+  }
+
+  const quiosque = quiosqueDaReserva(campos.tipo_evento);
+  const c = data.find((r) => quiosqueDaReserva(r.tipo_evento) === quiosque);
+  return c ? { mensagem: `${quiosque} já tem evento de ${c.cliente_nome} nessa data.` } : {};
 }
 
 export async function contarPendentes() {

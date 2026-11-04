@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { CalendarDays, CheckCircle2, Clock, Flag, Loader2, MapPin, MessageCircle, Save, ShoppingBag, Users, XCircle } from 'lucide-react';
+import { CalendarClock, CalendarDays, CheckCircle2, Clock, Flag, Loader2, MapPin, MessageCircle, Save, ShoppingBag, Users, XCircle } from 'lucide-react';
 import Modal from '@/components/modal';
 import { useFeedback } from '@/components/feedback';
 import { BadgeStatus, IconeTipo } from '@/components/admin/ui';
-import { atualizarReserva } from '@/lib/admin';
-import { MODELOS_MENSAGEM, TIPOS_RESERVA } from '@/lib/reservas';
+import CamposAgenda, { prepararAgenda, valoresAgenda } from '@/components/admin/campos-agenda';
+import { atualizarReserva, verificarDisponibilidade } from '@/lib/admin';
+import { MODELOS_MENSAGEM, TIPOS_RESERVA, ERRO_CONFLITO_DB, ERRO_DUPLICADO_DB, normalizarReserva } from '@/lib/reservas';
 import { formatarDataLonga, formatarTelefone, linkWhatsApp } from '@/lib/formatadores';
 
 // Detalhes + ações de uma reserva normalizada (ver normalizarReserva).
@@ -16,8 +17,37 @@ export default function ModalReserva({ reserva, aoFechar, aoAtualizar }) {
   const [salvando, setSalvando] = useState(null);
   const [observacao, setObservacao] = useState(reserva?.observacoes || '');
   const [atual, setAtual] = useState(reserva);
+  const [agenda, setAgenda] = useState(null); // valores do formulário de remarcação (null = fechado)
+  const [remarcada, setRemarcada] = useState(false);
 
   if (!reserva || !atual) return null;
+
+  const remarcar = async (e) => {
+    e.preventDefault();
+    const { campos, erro } = prepararAgenda(atual.tipo, agenda, atual);
+    if (erro) return toast(erro, 'erro');
+
+    setSalvando('remarcar');
+    const { mensagem, erro: erroConsulta } = await verificarDisponibilidade(atual.tipo, campos, atual.id);
+    if (mensagem || erroConsulta) {
+      setSalvando(null);
+      return toast(mensagem || 'Não foi possível verificar a disponibilidade. Tente novamente.', 'erro');
+    }
+
+    const { error } = await atualizarReserva(atual, campos);
+    setSalvando(null);
+    if (error) {
+      const ocupado = error.code === ERRO_CONFLITO_DB || error.code === ERRO_DUPLICADO_DB;
+      return toast(ocupado ? 'Esse horário/espaço acabou de ser ocupado.' : 'Erro ao remarcar: ' + error.message, 'erro');
+    }
+
+    const nova = normalizarReserva({ ...atual, ...campos }, atual.tipo);
+    setAtual(nova);
+    setAgenda(null);
+    setRemarcada(true);
+    aoAtualizar?.(nova);
+    toast('Reserva remarcada. Avise o cliente pelo WhatsApp!');
+  };
 
   const mudarStatus = async (status) => {
     if (status === 'cancelado') {
@@ -92,6 +122,26 @@ export default function ModalReserva({ reserva, aoFechar, aoAtualizar }) {
           </ul>
         </div>
 
+        {/* REMARCAR */}
+        {atual.status !== 'cancelado' && atual.status !== 'concluido' && (
+          agenda ? (
+            <form onSubmit={remarcar} className="rounded-2xl border border-red-200 bg-red-50/40 p-4 space-y-3">
+              <p className="rotulo flex items-center gap-1.5 !mb-0"><CalendarClock className="w-3.5 h-3.5 text-red-600" /> Remarcar reserva</p>
+              <CamposAgenda tipo={atual.tipo} valores={agenda} aoMudar={setAgenda} idPrefixo={`rm-${atual.chave}`} />
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setAgenda(null)} className="btn-secundario !py-2 !text-xs">Cancelar</button>
+                <button type="submit" disabled={!!salvando} className="btn-primario !py-2 !text-xs">
+                  {salvando === 'remarcar' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Salvar nova data
+                </button>
+              </div>
+            </form>
+          ) : (
+            <button type="button" onClick={() => setAgenda(valoresAgenda(atual.tipo, { reserva: atual }))} className="btn-secundario w-full !text-xs">
+              <CalendarClock className="w-4 h-4 text-red-600" /> Remarcar data, horário ou local
+            </button>
+          )
+        )}
+
         {/* PRÉ-PEDIDO */}
         {atual.tipo !== 'quadras' && (
           <div>
@@ -136,9 +186,9 @@ export default function ModalReserva({ reserva, aoFechar, aoAtualizar }) {
         {/* WHATSAPP */}
         <div>
           <p className="rotulo">Mensagem rápida no WhatsApp</p>
-          <div className="grid sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {Object.entries(MODELOS_MENSAGEM).map(([chave, modelo]) => {
-              const destaque = chave === 'confirmacao' && atual.status === 'confirmado';
+              const destaque = remarcada ? chave === 'remarcacao' : chave === 'confirmacao' && atual.status === 'confirmado';
               return (
                 <a
                   key={chave}

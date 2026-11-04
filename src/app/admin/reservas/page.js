@@ -2,17 +2,18 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { CheckCircle2, Download, Flag, Inbox, Loader2, MessageCircle, RefreshCw, Search, ShoppingBag, StickyNote, Users, X } from 'lucide-react';
+import { CheckCircle2, Download, Flag, Inbox, Loader2, MessageCircle, Plus, RefreshCw, Search, ShoppingBag, StickyNote, Users, X } from 'lucide-react';
 import { useHoje } from '@/lib/hooks';
 import { buscarReservas, atualizarReserva, baixarCSV } from '@/lib/admin';
 import { STATUS, STATUS_ATIVOS } from '@/lib/config';
-import { MODELOS_MENSAGEM, TIPOS_RESERVA } from '@/lib/reservas';
+import { MODELOS_MENSAGEM, TIPOS_RESERVA, ordenarPorDataHora } from '@/lib/reservas';
 import { formatarData, formatarDataLonga, formatarTelefone, linkWhatsApp, rotuloDia, somarDias } from '@/lib/formatadores';
 import { normalizarBusca } from '@/lib/cardapio';
 import { useFeedback } from '@/components/feedback';
 import { useAdmin } from '@/components/admin/shell';
 import { BadgeStatus, CabecalhoPagina, IconeTipo, Segmentado, Vazio } from '@/components/admin/ui';
 import ModalReserva from '@/components/admin/modal-reserva';
+import ModalNovaReserva from '@/components/admin/nova-reserva';
 
 const PERIODOS = {
   proximos: { label: 'Próximos 30 dias', intervalo: (h) => [h, somarDias(h, 30)] },
@@ -52,6 +53,7 @@ export default function AdminReservasPage() {
   const [carregando, setCarregando] = useState(true);
   const [selecionada, setSelecionada] = useState(null);
   const [processando, setProcessando] = useState(null);
+  const [novo, setNovo] = useState(null);
 
   const carregar = useCallback(async () => {
     if (!hoje) return;
@@ -76,7 +78,9 @@ export default function AdminReservasPage() {
   }, [pendentesGlobais, carregar]);
 
   const aoAtualizar = (nova) => {
-    setReservas((lista) => lista.map((r) => (r.chave === nova.chave ? nova : r)));
+    // Reordena: uma remarcação pode mudar o dia/horário da reserva
+    const ordenar = (a, b) => (periodo === 'passados' ? ordenarPorDataHora(b, a) : ordenarPorDataHora(a, b));
+    setReservas((lista) => lista.map((r) => (r.chave === nova.chave ? nova : r)).sort(ordenar));
     atualizarPendentes();
   };
 
@@ -163,6 +167,9 @@ export default function AdminReservasPage() {
         </button>
         <button onClick={exportar} disabled={!filtradas.length} className="btn-secundario">
           <Download className="w-4 h-4" /> Exportar CSV
+        </button>
+        <button onClick={() => setNovo({ tipo: tipo === 'todas' ? 'quadras' : tipo, data_reserva: hoje })} disabled={!hoje} className="btn-primario">
+          <Plus className="w-4 h-4" /> Nova reserva
         </button>
       </CabecalhoPagina>
 
@@ -271,6 +278,7 @@ export default function AdminReservasPage() {
       )}
 
       {selecionada && <ModalReserva key={selecionada.chave} reserva={selecionada} aoFechar={() => setSelecionada(null)} aoAtualizar={aoAtualizar} />}
+      {novo && <ModalNovaReserva inicial={novo} aoFechar={() => setNovo(null)} aoCriar={() => carregar()} />}
     </>
   );
 }

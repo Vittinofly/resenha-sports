@@ -1,4 +1,4 @@
-import { NEGOCIO } from '@/lib/config';
+import { NEGOCIO, PIX } from '@/lib/config';
 import { formatarData, formatarMoeda, hhmm, primeiroNome } from '@/lib/formatadores';
 
 export const TIPOS_RESERVA = {
@@ -75,6 +75,23 @@ export function ordenarPorDataHora(a, b) {
   return (a.data_reserva || '').localeCompare(b.data_reserva || '') || (a.inicio || '').localeCompare(b.inicio || '');
 }
 
+// Link para o cliente consultar/cancelar a própria reserva (ver /minha-reserva)
+export function linkReservaCliente(tipo, token) {
+  return token ? `${NEGOCIO.siteUrl}/minha-reserva?t=${tipo}&c=${token}` : '';
+}
+
+export const sinalPendente = (r) => Number(r?.sinal_valor) > 0 && !r?.sinal_pago;
+
+function rodapeCliente(r) {
+  const link = linkReservaCliente(r.tipo, r.token_cliente);
+  return link ? `\n\nPrecisa cancelar? Use este link: ${link}` : '';
+}
+
+function textoSinal(r) {
+  if (!sinalPendente(r) || !PIX.chave) return '';
+  return `\n\n💰 Para garantir, envie o sinal de *${formatarMoeda(r.sinal_valor)}* via Pix:\nChave: ${PIX.chave}\nDepois é só mandar o comprovante aqui.`;
+}
+
 // --- MENSAGENS DE WHATSAPP (equipe -> cliente) ---
 function descreverReserva(r) {
   const quando = `${formatarData(r.data_reserva)}${r.inicio ? ` às ${r.inicio}` : ''}`;
@@ -87,17 +104,24 @@ export const MODELOS_MENSAGEM = {
     texto: (r) =>
       `Olá, ${primeiroNome(r.nome)}! 👋\n\nAqui é do *${NEGOCIO.nome}*.\nSua reserva está *CONFIRMADA*:\n📍 ${descreverReserva(r)}${
         r.itens?.length ? `\n🍽️ Pré-pedido: ${r.itens.join(', ')}` : ''
-      }\n\nTe esperamos! Qualquer imprevisto é só avisar por aqui.`,
+      }${textoSinal(r)}\n\nTe esperamos! Qualquer imprevisto é só avisar por aqui.${rodapeCliente(r)}`,
   },
   lembrete: {
     label: 'Lembrete',
     texto: (r) =>
-      `Oi, ${primeiroNome(r.nome)}! Passando para lembrar da sua reserva no *${NEGOCIO.nomeCurto}*:\n📍 ${descreverReserva(r)}\n\nPodemos confirmar sua presença?`,
+      `Oi, ${primeiroNome(r.nome)}! Passando para lembrar da sua reserva no *${NEGOCIO.nomeCurto}*:\n📍 ${descreverReserva(r)}\n\nPodemos confirmar sua presença?${rodapeCliente(r)}`,
   },
   remarcacao: {
     label: 'Avisar remarcação',
     texto: (r) =>
-      `Olá, ${primeiroNome(r.nome)}! Aqui é do *${NEGOCIO.nome}*.\nSua reserva foi *remarcada* conforme combinado:\n📍 ${descreverReserva(r)}\n\nQualquer dúvida é só chamar por aqui.`,
+      `Olá, ${primeiroNome(r.nome)}! Aqui é do *${NEGOCIO.nome}*.\nSua reserva foi *remarcada* conforme combinado:\n📍 ${descreverReserva(r)}\n\nQualquer dúvida é só chamar por aqui.${rodapeCliente(r)}`,
+  },
+  sinal: {
+    label: 'Cobrar sinal',
+    // Só aparece quando há sinal em aberto (ver ModalReserva)
+    disponivel: (r) => sinalPendente(r) && !!PIX.chave,
+    texto: (r) =>
+      `Olá, ${primeiroNome(r.nome)}! Aqui é do *${NEGOCIO.nome}*.\nRecebemos sua solicitação para ${descreverReserva(r)}.${textoSinal(r)}`,
   },
   indisponivel: {
     label: 'Horário indisponível',

@@ -4,10 +4,10 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useSearchParams } from 'next/navigation';
 import { CheckCircle2, Download, Flag, Inbox, Loader2, MessageCircle, Plus, RefreshCw, Search, ShoppingBag, StickyNote, Users, X } from 'lucide-react';
 import { useHoje } from '@/lib/hooks';
-import { buscarReservas, atualizarReserva, baixarCSV } from '@/lib/admin';
+import { buscarReservas, atualizarReserva, baixarCSV, mensagemErroReserva } from '@/lib/admin';
 import { STATUS, STATUS_ATIVOS } from '@/lib/config';
 import { MODELOS_MENSAGEM, TIPOS_RESERVA, ordenarPorDataHora } from '@/lib/reservas';
-import { formatarData, formatarDataLonga, formatarTelefone, linkWhatsApp, rotuloDia, somarDias } from '@/lib/formatadores';
+import { formatarData, formatarDataLonga, formatarMoeda, formatarTelefone, linkWhatsApp, rotuloDia, somarDias } from '@/lib/formatadores';
 import { normalizarBusca } from '@/lib/cardapio';
 import { useFeedback } from '@/components/feedback';
 import { useAdmin } from '@/components/admin/shell';
@@ -88,7 +88,7 @@ export default function AdminReservasPage() {
     setProcessando(r.chave);
     const { error } = await atualizarReserva(r, { status });
     setProcessando(null);
-    if (error) return toast('Erro: ' + error.message, 'erro');
+    if (error) return toast(mensagemErroReserva(error), 'erro');
     aoAtualizar({ ...r, status });
     toast(`${r.nome}: ${STATUS[status].label.toLowerCase()}.`);
   };
@@ -138,7 +138,7 @@ export default function AdminReservasPage() {
   const exportar = () => {
     baixarCSV(
       `reservas-${hoje}.csv`,
-      ['Tipo', 'Data', 'Início', 'Fim', 'Local', 'Cliente', 'WhatsApp', 'Pessoas', 'Status', 'Pré-pedido', 'Observações'],
+      ['Tipo', 'Data', 'Início', 'Fim', 'Local', 'Cliente', 'WhatsApp', 'Pessoas', 'Status', 'Sinal', 'Pré-pedido', 'Observações'],
       filtradas.map((r) => [
         TIPOS_RESERVA[r.tipo].label,
         formatarData(r.data_reserva),
@@ -149,6 +149,7 @@ export default function AdminReservasPage() {
         formatarTelefone(r.cliente_whatsapp),
         r.pessoas || '',
         STATUS[r.status]?.label || r.status,
+        Number(r.sinal_valor) > 0 ? `${formatarMoeda(r.sinal_valor)} (${r.sinal_pago ? 'pago' : 'pendente'})` : '',
         r.itens.join(', '),
         r.observacoes || '',
       ])
@@ -241,6 +242,11 @@ export default function AdminReservasPage() {
                         </span>
                         <span className="flex flex-wrap gap-2 mt-1 text-[11px] text-slate-500">
                           {r.pessoas && <span className="flex items-center gap-1"><Users className="w-3 h-3" /> {r.pessoas}</span>}
+                          {Number(r.sinal_valor) > 0 && (
+                            <span className={`font-semibold ${r.sinal_pago ? 'text-emerald-700' : 'text-amber-700'}`}>
+                              Sinal {formatarMoeda(r.sinal_valor)} {r.sinal_pago ? '✔ pago' : '· aguardando Pix'}
+                            </span>
+                          )}
                           {r.itens.length > 0 && <span className="flex items-center gap-1 text-red-600 font-semibold"><ShoppingBag className="w-3 h-3" /> {r.itens.length} item(ns) no pré-pedido</span>}
                           {r.observacoes && <span className="flex items-center gap-1 truncate max-w-xs"><StickyNote className="w-3 h-3" /> {r.observacoes}</span>}
                         </span>

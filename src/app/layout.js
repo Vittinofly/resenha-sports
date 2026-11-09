@@ -2,7 +2,8 @@ import { Geist, Geist_Mono, Barlow_Condensed } from 'next/font/google';
 import './globals.css';
 import { FeedbackProvider } from '@/components/feedback';
 import WhatsAppFlutuante from '@/components/whatsapp-flutuante';
-import { NEGOCIO, QUADRAS } from '@/lib/config';
+import Analytics from '@/components/analytics';
+import { NEGOCIO, QUADRAS, ABERTURA_QUADRAS, FECHAMENTO_QUADRAS } from '@/lib/config';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -11,13 +12,16 @@ const geistSans = Geist({
 
 const geistMono = Geist_Mono({
   variable: '--font-geist-mono',
+  // Só usada no código Pix: não precisa ser pré-carregada em todas as páginas
+  preload: false,
   subsets: ['latin'],
 });
 
 const display = Barlow_Condensed({
   variable: '--font-display-face',
   subsets: ['latin'],
-  weight: ['600', '700', '800', '900'],
+  weight: ['700', '900'],
+  display: 'swap',
 });
 
 export const metadata = {
@@ -39,6 +43,10 @@ export const metadata = {
   },
   twitter: { card: 'summary_large_image' },
   formatDetection: { telephone: false },
+  // Search Console: método "Tag HTML" — cole só o valor de content em NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
+  ...(process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION && {
+    verification: { google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION },
+  }),
 };
 
 export const viewport = {
@@ -53,6 +61,18 @@ const jsonLd = {
   url: NEGOCIO.siteUrl,
   servesCuisine: 'Petiscos, espetinhos e bebidas',
   acceptsReservations: true,
+  hasMenu: `${NEGOCIO.siteUrl}/cardapio`,
+  openingHoursSpecification: {
+    '@type': 'OpeningHoursSpecification',
+    dayOfWeek: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+    opens: `${String(ABERTURA_QUADRAS).padStart(2, '0')}:00`,
+    closes: `${String(FECHAMENTO_QUADRAS).padStart(2, '0')}:00`,
+  },
+  potentialAction: {
+    '@type': 'ReserveAction',
+    target: { '@type': 'EntryPoint', urlTemplate: `${NEGOCIO.siteUrl}/reservas/quadras`, actionPlatform: ['http://schema.org/DesktopWebPlatform', 'http://schema.org/MobileWebPlatform'] },
+    result: { '@type': 'Reservation', name: 'Reserva de quadra' },
+  },
   amenityFeature: QUADRAS.map((q) => ({ '@type': 'LocationFeatureSpecification', name: q.nome, value: true })),
   ...(NEGOCIO.whatsapp && { telephone: `+55${NEGOCIO.whatsapp}` }),
   ...(NEGOCIO.endereco && { address: { '@type': 'PostalAddress', streetAddress: NEGOCIO.endereco, addressLocality: NEGOCIO.cidade, addressCountry: 'BR' } }),
@@ -67,6 +87,7 @@ export default function RootLayout({ children }) {
         <FeedbackProvider>
           {children}
           <WhatsAppFlutuante />
+          <Analytics />
         </FeedbackProvider>
       </body>
     </html>

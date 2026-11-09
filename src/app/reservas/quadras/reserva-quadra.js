@@ -6,8 +6,10 @@ import { AlertTriangle, CalendarDays, Clock, Dumbbell, Loader2, Timer } from 'lu
 import { supabase } from '@/lib/supabase';
 import { QUADRAS, HORARIOS_QUADRA, DURACOES, FECHAMENTO_QUADRAS } from '@/lib/config';
 import { useHoje, useMinutoAtual, useContatoSalvo } from '@/lib/hooks';
-import { hhmm, horaParaMinutos, minutosParaHora, intervalosSobrepoem, formatarDataLonga, formatarData, somarDias, telefoneValido } from '@/lib/formatadores';
+import { hhmm, horaParaMinutos, minutosParaHora, intervalosSobrepoem, formatarDataLonga, formatarData, formatarMoeda, somarDias, telefoneValido } from '@/lib/formatadores';
 import { mensagemSolicitacao, ERRO_CONFLITO_DB } from '@/lib/reservas';
+import { inserirReservaPublica } from '@/lib/reservas-publicas';
+import { calcularSinal } from '@/lib/pix';
 import { CamposContato } from '@/components/campos';
 import SeletorData from '@/components/seletor-data';
 import SucessoReserva from '@/components/sucesso-reserva';
@@ -117,6 +119,7 @@ export default function ReservaQuadra() {
   const inicioValido = inicio && !carregandoGrade && cabe(inicio) ? inicio : '';
   const fim = inicioValido ? minutosParaHora(horaParaMinutos(inicioValido) + duracao * 60) : '';
   const dentroDaSelecao = (hora) => inicioValido && hora >= inicioValido && hora < fim;
+  const sinal = calcularSinal('quadras', { data, inicio: inicioValido, fim });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -156,7 +159,8 @@ export default function ReservaQuadra() {
     }
 
     const nome = contato.cliente_nome.trim().replace(/\s+/g, ' ');
-    const { error } = await supabase.from('reservas_quadras').insert([
+    const { error, token, sinal: sinalGravado } = await inserirReservaPublica(
+      'quadras',
       {
         cliente_nome: nome,
         cliente_whatsapp: contato.cliente_whatsapp,
@@ -166,7 +170,8 @@ export default function ReservaQuadra() {
         horario_fim: fim,
         status: 'pendente',
       },
-    ]);
+      { sinal }
+    );
 
     setEnviando(false);
 
@@ -175,7 +180,7 @@ export default function ReservaQuadra() {
         setErroConflito('Esse horário acabou de ser reservado. Escolha outro horário.');
         carregarOcupacao(data);
       } else {
-        toast('Não foi possível enviar sua reserva. Tente novamente ou fale conosco pelo WhatsApp.', 'erro');
+        toast(error.code === 'P0001' ? error.message : 'Não foi possível enviar sua reserva. Tente novamente ou fale conosco pelo WhatsApp.', 'erro');
       }
       return;
     }
@@ -183,6 +188,9 @@ export default function ReservaQuadra() {
     salvarContato(nome, contato.cliente_whatsapp);
     setSucesso({
       titulo: 'Quadra solicitada!',
+      tipo: 'quadras',
+      token,
+      sinal: sinalGravado,
       linhas: [
         ['Quadra', quadra.nome],
         ['Data', formatarDataLonga(data)],
@@ -235,7 +243,7 @@ export default function ReservaQuadra() {
                   </span>
                   <span className="block text-xs font-semibold text-slate-600 mt-0.5">{q.esportes}</span>
                   <span className="flex items-center justify-between mt-3 text-[11px]">
-                    <span className="text-slate-400">{q.piso}</span>
+                    <span className="text-slate-500">{q.piso}</span>
                     {livres !== null && (
                       <span className={`font-bold ${livres ? 'text-emerald-700' : 'text-slate-400'}`}>
                         {livres ? `${livres} horário${livres > 1 ? 's' : ''} livre${livres > 1 ? 's' : ''}` : 'Lotada'}
@@ -267,7 +275,7 @@ export default function ReservaQuadra() {
                   role="radio"
                   aria-checked={duracao === d}
                   onClick={() => setDuracao(d)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition ${duracao === d ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-black transition ${duracao === d ? 'bg-white text-red-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
                 >
                   {d}h
                 </button>
@@ -359,22 +367,20 @@ export default function ReservaQuadra() {
       <aside className="lg:sticky lg:top-24 cartao p-5 space-y-4">
         <h2 className="font-display font-bold uppercase text-lg text-slate-900">Resumo</h2>
         <dl className="space-y-3 text-sm">
+          {/* dt com ícone + texto só para leitor de tela (estrutura válida de <dl>) */}
           <div className="flex gap-3">
-            <Dumbbell className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
-            <div><dt className="sr-only">Quadra</dt><dd className="font-bold text-slate-900">{quadra.nome}</dd></div>
+            <dt className="mt-0.5 shrink-0"><Dumbbell className="w-4 h-4 text-red-600" aria-hidden="true" /><span className="sr-only">Quadra</span></dt>
+            <dd className="font-bold text-slate-900">{quadra.nome}</dd>
           </div>
           <div className="flex gap-3">
-            <CalendarDays className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
-            <div><dt className="sr-only">Data</dt><dd className="font-bold text-slate-900">{data ? formatarDataLonga(data) : '—'}</dd></div>
+            <dt className="mt-0.5 shrink-0"><CalendarDays className="w-4 h-4 text-red-600" aria-hidden="true" /><span className="sr-only">Data</span></dt>
+            <dd className="font-bold text-slate-900">{data ? formatarDataLonga(data) : '—'}</dd>
           </div>
           <div className="flex gap-3">
-            <Clock className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
-            <div>
-              <dt className="sr-only">Horário</dt>
-              <dd className={inicioValido ? 'font-bold text-slate-900' : 'text-slate-400'}>
-                {inicioValido ? `${inicioValido} às ${fim} · ${duracao}h de jogo` : 'Selecione um horário na grade'}
-              </dd>
-            </div>
+            <dt className="mt-0.5 shrink-0"><Clock className="w-4 h-4 text-red-600" aria-hidden="true" /><span className="sr-only">Horário</span></dt>
+            <dd className={inicioValido ? 'font-bold text-slate-900' : 'text-slate-500'}>
+              {inicioValido ? `${inicioValido} às ${fim} · ${duracao}h de jogo` : 'Selecione um horário na grade'}
+            </dd>
           </div>
         </dl>
 
@@ -385,8 +391,13 @@ export default function ReservaQuadra() {
             'Solicitar reserva'
           )}
         </button>
+        {sinal > 0 && (
+          <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3">
+            Horário nobre: sinal de <strong>{formatarMoeda(sinal)}</strong> via Pix para garantir. O QR Code aparece ao concluir.
+          </p>
+        )}
         <p className="text-[11px] text-slate-500 text-center leading-relaxed">
-          Sem pagamento agora. A reserva fica <strong>pendente</strong> até a confirmação da equipe pelo WhatsApp{data ? ` para ${formatarData(data)}` : ''}.
+          {sinal > 0 ? 'Nada é cobrado pelo site.' : 'Sem pagamento agora.'} A reserva fica <strong>pendente</strong> até a confirmação da equipe pelo WhatsApp{data ? ` para ${formatarData(data)}` : ''}.
         </p>
       </aside>
     </form>

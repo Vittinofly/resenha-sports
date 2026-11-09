@@ -1,19 +1,30 @@
 import { supabase } from '@/lib/supabase';
-import { TIPOS_RESERVA, normalizarReserva, ordenarPorDataHora, quiosqueDaReserva } from '@/lib/reservas';
+import { TIPOS_RESERVA, ERRO_CONFLITO_DB, ERRO_DUPLICADO_DB, normalizarReserva, ordenarPorDataHora, quiosqueDaReserva } from '@/lib/reservas';
 import { STATUS_ATIVOS } from '@/lib/config';
 import { hhmm, intervalosSobrepoem } from '@/lib/formatadores';
 
+// O Supabase devolve no máximo 1000 linhas por requisição (max_rows), mesmo
+// pedindo mais. Por isso paginamos com .range() até atingir `limite`.
+const TAMANHO_PAGINA = 1000;
+
 // Busca reservas das três tabelas, já normalizadas e ordenadas por data/hora.
-export async function buscarReservas({ tipos = Object.keys(TIPOS_RESERVA), de, ate, somenteAtivas = false, status, limite = 1000 } = {}) {
+export async function buscarReservas({ tipos = Object.keys(TIPOS_RESERVA), de, ate, somenteAtivas = false, status, limite = 5000 } = {}) {
   const resultados = await Promise.all(
     tipos.map(async (tipo) => {
-      let consulta = supabase.from(TIPOS_RESERVA[tipo].tabela).select('*');
-      if (de) consulta = consulta.gte('data_reserva', de);
-      if (ate) consulta = consulta.lte('data_reserva', ate);
-      if (somenteAtivas) consulta = consulta.in('status', STATUS_ATIVOS);
-      if (status) consulta = consulta.eq('status', status);
-      const { data, error } = await consulta.order('data_reserva', { ascending: false }).limit(limite);
-      return { linhas: (data || []).map((r) => normalizarReserva(r, tipo)), error };
+      const linhas = [];
+      for (let desde = 0; desde < limite; desde += TAMANHO_PAGINA) {
+        let consulta = supabase.from(TIPOS_RESERVA[tipo].tabela).select('*');
+        if (de) consulta = consulta.gte('data_reserva', de);
+        if (ate) consulta = consulta.lte('data_reserva', ate);
+        if (somenteAtivas) consulta = consulta.in('status', STATUS_ATIVOS);
+        if (status) consulta = consulta.eq('status', status);
+        const fimPagina = Math.min(desde + TAMANHO_PAGINA, limite) - 1;
+        const { data, error } = await consulta.order('data_reserva', { ascending: false }).order('id', { ascending: false }).range(desde, fimPagina);
+        if (error) return { linhas: linhas.map((r) => normalizarReserva(r, tipo)), error };
+        linhas.push(...data);
+        if (data.length < fimPagina - desde + 1) break;
+      }
+      return { linhas: linhas.map((r) => normalizarReserva(r, tipo)), error: null };
     })
   );
 
@@ -25,6 +36,17 @@ export async function buscarReservas({ tipos = Object.keys(TIPOS_RESERVA), de, a
 
 export function atualizarReserva(reserva, campos) {
   return supabase.from(TIPOS_RESERVA[reserva.tipo].tabela).update(campos).eq('id', reserva.id);
+}
+
+// Mensagem amigável para erros do banco ao alterar reservas. Reativar uma
+// reserva cancelada cujo horário já foi ocupado dispara as travas
+// anti-overbooking (23P01 / 23505) — sem isso a equipe veria o erro técnico.
+export function mensagemErroReserva(error, prefixo = 'Erro') {
+  if (error?.code === ERRO_CONFLITO_DB || error?.code === ERRO_DUPLICADO_DB) {
+    return 'Esse horário/espaço já está ocupado por outra reserva. Remarque antes de reativar.';
+  }
+  if (error?.code === '42501') return 'Sem permissão para esta ação. Peça acesso a um administrador.';
+  return `${prefixo}: ${error?.message || 'falha desconhecida'}`;
 }
 
 // Verifica se os campos de uma reserva (já no formato do banco) colidem com

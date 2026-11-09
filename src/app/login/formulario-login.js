@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 
 const AVISOS = {
   inatividade: { icone: Clock, texto: 'Sua sessão expirou após 30 minutos sem uso. Entre novamente.' },
+  'sem-acesso': { icone: AlertCircle, texto: 'Esta conta não faz parte da equipe. Peça acesso a um administrador.' },
 };
 
 function AvisoDaUrl() {

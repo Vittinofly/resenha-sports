@@ -7,10 +7,10 @@ export default function sitemap() {
     { caminho: '/reservas/quiosques', prioridade: 0.8 },
     { caminho: '/reservas/mesas', prioridade: 0.8 },
     { caminho: '/cardapio', prioridade: 0.7 },
+    { caminho: '/privacidade', prioridade: 0.2 },
   ];
   return rotas.map(({ caminho, prioridade }) => ({
-    url: `${NEGOCIO.siteUrl}${caminho}`,
-    changeFrequency: 'weekly',
+    url: `${NEGOCIO.siteUrl}${caminho}`,    changeFrequency: 'weekly',
     priority: prioridade,
   }));
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useId } from 'react';
+import Link from 'next/link';
 import { User, Phone, UserCheck } from 'lucide-react';
 import { formatarTelefone, apenasDigitos } from '@/lib/formatadores';
 
@@ -39,7 +40,8 @@ export function CamposContato({ nome, whatsapp, aoMudar, contatoSalvo, mostrarEr
               autoComplete="name"
               placeholder="Como devemos te chamar?"
               value={nome}
-              onChange={(e) => aoMudar({ cliente_nome: e.target.value.replace(/[^a-zA-ZÀ-ÿ'\s]/g, '') })}
+              maxLength={80}
+              onChange={(e) => aoMudar({ cliente_nome: e.target.value.replace(/[^a-zA-ZÀ-ÖØ-öø-ÿ'.\-\s]/g, '') })}
               className="input pl-10"
             />
           </div>
@@ -67,6 +69,10 @@ export function CamposContato({ nome, whatsapp, aoMudar, contatoSalvo, mostrarEr
           </p>
         </div>
       </div>
+      <p className="text-[11px] text-slate-500">
+        Usamos seu nome e WhatsApp só para cuidar da reserva. Veja a{' '}
+        <Link href="/privacidade" target="_blank" className="font-semibold underline hover:text-slate-800">política de privacidade</Link>.
+      </p>
     </div>
   );
 }

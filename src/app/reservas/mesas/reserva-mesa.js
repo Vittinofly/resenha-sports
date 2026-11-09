@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Loader2, Minus, Plus, ShoppingBag, Users } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { inserirReservaPublica } from '@/lib/reservas-publicas';
 import { HORARIOS_RESTAURANTE } from '@/lib/config';
 import { useHoje, useMinutoAtual, useContatoSalvo } from '@/lib/hooks';
 import { useCardapioDisponivel } from '@/lib/cardapio';
@@ -54,28 +54,28 @@ export default function ReservaMesa() {
     // Estimativa de permanência de 2h (limitada às 23:59)
     const saida = minutosParaHora(horaParaMinutos(horarioValido) + 120);
 
-    const { error } = await supabase.from('reservas_mesas').insert([
-      {
-        cliente_nome: nome,
-        cliente_whatsapp: contato.cliente_whatsapp,
-        data_reserva: data,
-        horario_inicio: horarioValido,
-        horario_fim: saida,
-        num_pessoas: pessoas,
-        tipo_evento: montarDetalhes(`Reserva para ${pessoas} pessoas`, 'Mesa Restaurante', pedido.texto),
-        status: 'pendente',
-      },
-    ]);
+    const { error, token } = await inserirReservaPublica('mesas', {
+      cliente_nome: nome,
+      cliente_whatsapp: contato.cliente_whatsapp,
+      data_reserva: data,
+      horario_inicio: horarioValido,
+      horario_fim: saida,
+      num_pessoas: pessoas,
+      tipo_evento: montarDetalhes(`Reserva para ${pessoas} pessoas`, 'Mesa Restaurante', pedido.texto),
+      status: 'pendente',
+    });
     setEnviando(false);
 
     if (error) {
-      toast('Não foi possível enviar sua reserva. Tente novamente ou fale conosco pelo WhatsApp.', 'erro');
+      toast(error.code === 'P0001' ? error.message : 'Não foi possível enviar sua reserva. Tente novamente ou fale conosco pelo WhatsApp.', 'erro');
       return;
     }
 
     salvarContato(nome, contato.cliente_whatsapp);
     setSucesso({
       titulo: 'Mesa solicitada!',
+      tipo: 'mesas',
+      token,
       linhas: [
         ['Data', formatarDataLonga(data)],
         ['Chegada', horarioValido],
@@ -165,7 +165,7 @@ export default function ReservaMesa() {
 
         <section className="cartao p-5 sm:p-6 space-y-4">
           <div>
-            <h2 className="font-display font-bold uppercase text-xl text-slate-900">2. Pré-pedido <span className="text-slate-400 text-base">(opcional)</span></h2>
+            <h2 className="font-display font-bold uppercase text-xl text-slate-900">2. Pré-pedido <span className="text-slate-500 text-base">(opcional)</span></h2>
             <p className="text-xs text-slate-500">Adiante o que vai querer e encontre tudo encaminhado quando chegar.</p>
           </div>
           <PrePedido cardapio={cardapio} carregando={carregandoCardapio} selecionados={itens} aoMudar={setItens} />

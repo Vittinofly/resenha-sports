@@ -8,6 +8,8 @@ import { useHoje, useContatoSalvo } from '@/lib/hooks';
 import { useCardapioDisponivel } from '@/lib/cardapio';
 import { formatarDataLonga, formatarMoeda, somarDias, telefoneValido } from '@/lib/formatadores';
 import { montarDetalhes, mensagemSolicitacao, resumirPedido, quiosqueDaReserva, ERRO_DUPLICADO_DB } from '@/lib/reservas';
+import { inserirReservaPublica } from '@/lib/reservas-publicas';
+import { calcularSinal } from '@/lib/pix';
 import { CamposContato } from '@/components/campos';
 import SeletorData from '@/components/seletor-data';
 import PrePedido from '@/components/pre-pedido';
@@ -38,6 +40,7 @@ export default function ReservaQuiosque() {
   const pedido = resumirPedido(itens, cardapio);
   const convidados = Number(convidadosTexto) || 0;
   const acimaCapacidade = convidados > quiosque.capacidade;
+  const sinal = calcularSinal('quiosques');
   const ajustarConvidados = (delta) => setConvidadosTexto(String(Math.min(999, Math.max(1, convidados + delta))));
 
   useEffect(() => {
@@ -71,7 +74,8 @@ export default function ReservaQuiosque() {
 
     setEnviando(true);
     const nome = contato.cliente_nome.trim().replace(/\s+/g, ' ');
-    const { error } = await supabase.from('reservas_quiosques').insert([
+    const { error, token, sinal: sinalGravado } = await inserirReservaPublica(
+      'quiosques',
       {
         cliente_nome: nome,
         cliente_whatsapp: contato.cliente_whatsapp,
@@ -80,7 +84,8 @@ export default function ReservaQuiosque() {
         num_convidados: convidados,
         status: 'pendente',
       },
-    ]);
+      { sinal }
+    );
     setEnviando(false);
 
     if (error) {
@@ -88,7 +93,7 @@ export default function ReservaQuiosque() {
         setOcupados((atual) => ({ data, nomes: [...(atual.data === data ? atual.nomes : []), quiosqueId] }));
         toast('Esse quiosque acabou de ser reservado para essa data. Escolha outro quiosque ou dia.', 'erro');
       } else {
-        toast('Não foi possível enviar sua reserva. Tente novamente ou fale conosco pelo WhatsApp.', 'erro');
+        toast(error.code === 'P0001' ? error.message : 'Não foi possível enviar sua reserva. Tente novamente ou fale conosco pelo WhatsApp.', 'erro');
       }
       return;
     }
@@ -96,6 +101,9 @@ export default function ReservaQuiosque() {
     salvarContato(nome, contato.cliente_whatsapp);
     setSucesso({
       titulo: 'Evento solicitado!',
+      tipo: 'quiosques',
+      token,
+      sinal: sinalGravado,
       linhas: [
         ['Quiosque', quiosque.nome],
         ['Evento', tipoEvento],
@@ -218,7 +226,7 @@ export default function ReservaQuiosque() {
 
         <section className="cartao p-5 sm:p-6 space-y-4">
           <div>
-            <h2 className="font-display font-bold uppercase text-xl text-slate-900">2. Consumo do evento <span className="text-slate-400 text-base">(opcional)</span></h2>
+            <h2 className="font-display font-bold uppercase text-xl text-slate-900">2. Consumo do evento <span className="text-slate-500 text-base">(opcional)</span></h2>
             <p className="text-xs text-slate-500">Monte uma estimativa de bebidas e porções. A equipe ajusta tudo com você.</p>
           </div>
           <PrePedido cardapio={cardapio} carregando={carregandoCardapio} selecionados={itens} aoMudar={setItens} />
@@ -254,6 +262,11 @@ export default function ReservaQuiosque() {
         <button type="submit" disabled={enviando || estaOcupado(quiosqueId) || !data} className="btn-primario w-full !py-3.5 !text-base">
           {enviando ? <><Loader2 className="w-5 h-5 animate-spin" /> Enviando...</> : 'Solicitar quiosque'}
         </button>
+        {sinal > 0 && (
+          <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3">
+            Sinal de <strong>{formatarMoeda(sinal)}</strong> via Pix para garantir a data. O QR Code aparece ao concluir.
+          </p>
+        )}
         <p className="text-[11px] text-slate-500 text-center">Reservas com no mínimo 1 dia de antecedência. Confirmação pelo WhatsApp.</p>
       </aside>
     </form>

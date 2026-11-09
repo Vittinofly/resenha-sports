@@ -14,7 +14,7 @@ export default function Footer() {
         </div>
 
         <div>
-          <h3 className="titulo-rodape">Reservas</h3>
+          <h2 className="titulo-rodape">Reservas</h2>
           <ul className="space-y-2 text-sm">
             <li><Link href="/reservas/quadras" className="hover:text-white">Quadras de areia e padel</Link></li>
             <li><Link href="/reservas/mesas" className="hover:text-white">Mesa no gastrobar</Link></li>
@@ -24,7 +24,7 @@ export default function Footer() {
         </div>
 
         <div>
-          <h3 className="titulo-rodape">Horários</h3>
+          <h2 className="titulo-rodape">Horários</h2>
           <ul className="space-y-2 text-sm">
             {HORARIO_FUNCIONAMENTO.map((h) => (
               <li key={h.dias} className="flex items-center gap-2">
@@ -36,7 +36,7 @@ export default function Footer() {
         </div>
 
         <div>
-          <h3 className="titulo-rodape">Contato</h3>
+          <h2 className="titulo-rodape">Contato</h2>
           <ul className="space-y-2 text-sm">
             {NEGOCIO.whatsapp && (
               <li>
@@ -61,15 +61,18 @@ export default function Footer() {
               </li>
             )}
             {!NEGOCIO.whatsapp && !NEGOCIO.instagram && !NEGOCIO.endereco && (
-              <li className="text-slate-500">Fale com a gente pelo balcão ou reserve online.</li>
+              <li className="text-slate-400">Fale com a gente pelo balcão ou reserve online.</li>
             )}
           </ul>
         </div>
       </div>
 
       <div className="border-t border-white/10">
-        <div className="max-w-6xl mx-auto px-4 py-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
-          <span>© {NEGOCIO.nome}</span>
+        <div className="max-w-6xl mx-auto px-4 py-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
+          <span>
+            © {NEGOCIO.nome} ·{' '}
+            <Link href="/privacidade" className="hover:text-slate-300">Privacidade</Link>
+          </span>
           <Link href="/login" className="inline-flex items-center gap-1.5 hover:text-slate-300">
             <ShieldCheck className="w-3.5 h-3.5" /> Área da equipe
           </Link>

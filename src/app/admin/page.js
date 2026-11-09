@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertCircle, ArrowRight, CalendarCheck, CheckCircle2, Clock, Copy, Gauge, Loader2, MessageCircle, Megaphone, RefreshCw } from 'lucide-react';
 import { useHoje } from '@/lib/hooks';
-import { buscarReservas, atualizarReserva } from '@/lib/admin';
+import { buscarReservas, atualizarReserva, mensagemErroReserva } from '@/lib/admin';
 import { QUADRAS, HORARIOS_QUADRA, STATUS_ATIVOS, NEGOCIO } from '@/lib/config';
 import { MODELOS_MENSAGEM } from '@/lib/reservas';
 import { formatarDataLonga, horaParaMinutos, linkWhatsApp, rotuloDia, somarDias } from '@/lib/formatadores';
@@ -60,7 +60,7 @@ export default function AdminVisaoGeralPage() {
     setConfirmando(null);
     if (error) {
       janela?.close();
-      return toast('Erro ao confirmar: ' + error.message, 'erro');
+      return toast(mensagemErroReserva(error, 'Erro ao confirmar'), 'erro');
     }
     aoAtualizar({ ...r, status: 'confirmado' });
     toast(`Reserva de ${r.nome} confirmada.`);

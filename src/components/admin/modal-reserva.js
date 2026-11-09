@@ -1,14 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { CalendarClock, CalendarDays, CheckCircle2, Clock, Flag, Loader2, MapPin, MessageCircle, Save, ShoppingBag, Users, XCircle } from 'lucide-react';
+import { Banknote, CalendarClock, CalendarDays, CheckCircle2, Clock, Flag, Loader2, MapPin, MessageCircle, Save, ShoppingBag, Users, XCircle } from 'lucide-react';
 import Modal from '@/components/modal';
 import { useFeedback } from '@/components/feedback';
 import { BadgeStatus, IconeTipo } from '@/components/admin/ui';
 import CamposAgenda, { prepararAgenda, valoresAgenda } from '@/components/admin/campos-agenda';
-import { atualizarReserva, verificarDisponibilidade } from '@/lib/admin';
+import { atualizarReserva, mensagemErroReserva, verificarDisponibilidade } from '@/lib/admin';
 import { MODELOS_MENSAGEM, TIPOS_RESERVA, ERRO_CONFLITO_DB, ERRO_DUPLICADO_DB, normalizarReserva } from '@/lib/reservas';
-import { formatarDataLonga, formatarTelefone, linkWhatsApp } from '@/lib/formatadores';
+import { formatarDataLonga, formatarMoeda, formatarTelefone, linkWhatsApp } from '@/lib/formatadores';
+import HistoricoReserva from '@/components/admin/historico-reserva';
 
 // Detalhes + ações de uma reserva normalizada (ver normalizarReserva).
 // O componente pai deve passar `key={reserva.chave}` para reiniciar o estado ao trocar de reserva.
@@ -19,6 +20,7 @@ export default function ModalReserva({ reserva, aoFechar, aoAtualizar }) {
   const [atual, setAtual] = useState(reserva);
   const [agenda, setAgenda] = useState(null); // valores do formulário de remarcação (null = fechado)
   const [remarcada, setRemarcada] = useState(false);
+  const [versao, setVersao] = useState(0); // recarrega o histórico após cada alteração
 
   if (!reserva || !atual) return null;
 
@@ -38,11 +40,12 @@ export default function ModalReserva({ reserva, aoFechar, aoAtualizar }) {
     setSalvando(null);
     if (error) {
       const ocupado = error.code === ERRO_CONFLITO_DB || error.code === ERRO_DUPLICADO_DB;
-      return toast(ocupado ? 'Esse horário/espaço acabou de ser ocupado.' : 'Erro ao remarcar: ' + error.message, 'erro');
+      return toast(ocupado ? 'Esse horário/espaço acabou de ser ocupado.' : mensagemErroReserva(error, 'Erro ao remarcar'), 'erro');
     }
 
     const nova = normalizarReserva({ ...atual, ...campos }, atual.tipo);
     setAtual(nova);
+    setVersao((v) => v + 1);
     setAgenda(null);
     setRemarcada(true);
     aoAtualizar?.(nova);
@@ -62,10 +65,11 @@ export default function ModalReserva({ reserva, aoFechar, aoAtualizar }) {
     setSalvando(status);
     const { error } = await atualizarReserva(atual, { status });
     setSalvando(null);
-    if (error) return toast('Erro ao atualizar status: ' + error.message, 'erro');
+    if (error) return toast(mensagemErroReserva(error, 'Erro ao atualizar status'), 'erro');
 
     const nova = { ...atual, status };
     setAtual(nova);
+    setVersao((v) => v + 1);
     aoAtualizar?.(nova);
     toast(
       status === 'confirmado'
@@ -87,11 +91,25 @@ export default function ModalReserva({ reserva, aoFechar, aoAtualizar }) {
     if (error) return toast('Erro ao salvar observação: ' + error.message, 'erro');
     const nova = { ...atual, observacoes: texto };
     setAtual(nova);
+    setVersao((v) => v + 1);
     aoAtualizar?.(nova);
     toast('Observação salva.');
   };
 
-  const observacaoAlterada = observacao.trim() !== (atual.observacoes || '').trim();
+  const alternarSinal = async () => {
+    setSalvando('sinal');
+    const sinal_pago = !atual.sinal_pago;
+    const { error } = await atualizarReserva(atual, { sinal_pago });
+    setSalvando(null);
+    if (error) return toast(mensagemErroReserva(error, 'Erro ao atualizar sinal'), 'erro');
+    const nova = { ...atual, sinal_pago };
+    setAtual(nova);
+    setVersao((v) => v + 1);
+    aoAtualizar?.(nova);
+    toast(sinal_pago ? 'Sinal marcado como pago.' : 'Sinal marcado como pendente.');
+  };
+
+  const observacaoAlterada =observacao.trim() !== (atual.observacoes || '').trim();
 
   return (
     <Modal aberto aoFechar={aoFechar} titulo={`Reserva de ${TIPOS_RESERVA[atual.tipo].label}`} icone={<IconeTipo tipo={atual.tipo} className="w-5 h-5 text-red-600" />} largura="max-w-lg">
@@ -121,6 +139,19 @@ export default function ModalReserva({ reserva, aoFechar, aoAtualizar }) {
             )}
           </ul>
         </div>
+
+        {/* SINAL */}
+        {Number(atual.sinal_valor) > 0 && (
+          <div className={`flex items-center justify-between gap-3 rounded-2xl border p-3 ${atual.sinal_pago ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+            <p className="flex items-center gap-2 text-sm">
+              <Banknote className={`w-4 h-4 ${atual.sinal_pago ? 'text-emerald-600' : 'text-amber-600'}`} />
+              Sinal de <strong>{formatarMoeda(atual.sinal_valor)}</strong> — {atual.sinal_pago ? 'pago' : 'aguardando Pix'}
+            </p>
+            <button type="button" onClick={alternarSinal} disabled={!!salvando} className={atual.sinal_pago ? 'btn-secundario !py-1.5 !px-3 !text-xs' : 'btn-escuro !py-1.5 !px-3 !text-xs'}>
+              {salvando === 'sinal' && <Loader2 className="w-3.5 h-3.5 animate-spin" />} {atual.sinal_pago ? 'Desfazer' : 'Marcar como pago'}
+            </button>
+          </div>
+        )}
 
         {/* REMARCAR */}
         {atual.status !== 'cancelado' && atual.status !== 'concluido' && (
@@ -187,7 +218,7 @@ export default function ModalReserva({ reserva, aoFechar, aoAtualizar }) {
         <div>
           <p className="rotulo">Mensagem rápida no WhatsApp</p>
           <div className="grid grid-cols-2 gap-2">
-            {Object.entries(MODELOS_MENSAGEM).map(([chave, modelo]) => {
+            {Object.entries(MODELOS_MENSAGEM).filter(([, m]) => !m.disponivel || m.disponivel(atual)).map(([chave, modelo]) => {
               const destaque = remarcada ? chave === 'remarcacao' : chave === 'confirmacao' && atual.status === 'confirmado';
               return (
                 <a
@@ -223,6 +254,8 @@ export default function ModalReserva({ reserva, aoFechar, aoAtualizar }) {
             </button>
           </div>
         </div>
+
+        {atual.id != null && <HistoricoReserva tipo={atual.tipo} reservaId={atual.id} versao={versao} />}
       </div>
     </Modal>
   );

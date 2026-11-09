@@ -9,6 +9,7 @@ import { formatarMoeda, lerPreco } from '@/lib/formatadores';
 import { useFeedback } from '@/components/feedback';
 import { CabecalhoPagina, Indicador, Segmentado, Vazio } from '@/components/admin/ui';
 import Modal from '@/components/modal';
+import CampoFoto from '@/components/admin/campo-foto';
 
 const ITEM_VAZIO = { nome: '', categoria: CATEGORIAS_CARDAPIO[0], preco: '', disponivel: true, descricao: '', imagem_url: '' };
 
@@ -21,11 +22,17 @@ export default function AdminCardapioPage() {
   const [edicao, setEdicao] = useState(null); // item em edição (id ausente = novo)
   const [salvando, setSalvando] = useState(false);
   const [alternando, setAlternando] = useState(null);
+  const [colunasExtras, setColunasExtras] = useState(false);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     const { data, error } = await supabase.from('cardapio').select('*');
     if (error) toast('Erro ao carregar cardápio: ' + error.message, 'erro');
+    // Com a tabela vazia não dá para inferir as colunas pelas linhas: consulta direto.
+    if (data && data.length === 0) {
+      const { error: semColunas } = await supabase.from('cardapio').select('descricao, imagem_url').limit(1);
+      setColunasExtras(!semColunas);
+    }
     setProdutos(data || []);
     setCarregando(false);
   }, [toast]);
@@ -36,8 +43,8 @@ export default function AdminCardapioPage() {
   }, [carregar]);
 
   // Colunas opcionais: só exibimos os campos se existirem na tabela
-  const temDescricao = produtos.some((p) => 'descricao' in p);
-  const temImagem = produtos.some((p) => 'imagem_url' in p);
+  const temDescricao = colunasExtras || produtos.some((p) => 'descricao' in p);
+  const temImagem = colunasExtras || produtos.some((p) => 'imagem_url' in p);
 
   const categorias = useMemo(
     () => [...new Set([...CATEGORIAS_CARDAPIO, ...produtos.map((p) => p.categoria).filter(Boolean)])].sort(ordemCategoria),
@@ -201,10 +208,7 @@ export default function AdminCardapioPage() {
               </div>
             )}
             {temImagem && (
-              <div>
-                <label htmlFor="item-img" className="rotulo">URL da foto</label>
-                <input id="item-img" type="url" value={edicao.imagem_url} onChange={(e) => setEdicao({ ...edicao, imagem_url: e.target.value })} className="input" placeholder="https://..." />
-              </div>
+              <CampoFoto valor={edicao.imagem_url} aoMudar={(imagem_url) => setEdicao((atual) => ({ ...atual, imagem_url }))} />
             )}
             <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
               <input type="checkbox" checked={edicao.disponivel} onChange={(e) => setEdicao({ ...edicao, disponivel: e.target.checked })} className="w-4 h-4 accent-red-600" />

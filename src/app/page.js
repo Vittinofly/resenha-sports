@@ -113,21 +113,21 @@ export default function HomePage() {
             </div>
           </div>
 
-          <dl className="grid grid-cols-3 lg:grid-cols-1 gap-3">
+          <ul className="grid grid-cols-3 lg:grid-cols-1 gap-3">
             {[
               { valor: QUADRAS.length, rotulo: 'quadras', icone: Dumbbell },
               { valor: HORARIO_FUNCIONAMENTO[0].horas.replace(' às ', '–').replace(/:00/g, 'h'), rotulo: 'todos os dias', icone: Clock },
               { valor: `${Math.max(...QUIOSQUES.map((q) => q.capacidade))}`, rotulo: 'pessoas no maior quiosque', icone: Users },
             ].map(({ valor, rotulo, icone: Icone }) => (
-              <div key={rotulo} className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 lg:flex lg:items-center lg:gap-4">
-                <Icone className="w-5 h-5 text-red-500 mb-2 lg:mb-0 shrink-0" />
-                <div>
-                  <dd className="font-display font-black text-2xl sm:text-3xl leading-none">{valor}</dd>
-                  <dt className="text-[11px] sm:text-xs text-slate-400 mt-1">{rotulo}</dt>
-                </div>
-              </div>
+              <li key={rotulo} className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 lg:flex lg:items-center lg:gap-4">
+                <Icone className="w-5 h-5 text-red-500 mb-2 lg:mb-0 shrink-0" aria-hidden="true" />
+                <p>
+                  <strong className="block font-display font-black text-2xl sm:text-3xl leading-none">{valor}</strong>
+                  <span className="block text-[11px] sm:text-xs text-slate-300 mt-1">{rotulo}</span>
+                </p>
+              </li>
             ))}
-          </dl>
+          </ul>
         </div>
       </section>
 
@@ -139,14 +139,14 @@ export default function HomePage() {
               key={href}
               href={href}
               className={`group rounded-3xl p-6 border shadow-sm hover:shadow-xl hover:-translate-y-1 transition flex flex-col ${
-                destaque ? 'bg-red-600 border-red-600 text-white' : 'bg-white border-slate-200'
+                destaque ? 'bg-red-700 border-red-700 text-white' : 'bg-white border-slate-200'
               }`}
             >
               <span className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-5 ${destaque ? 'bg-white/15' : 'bg-red-50 text-red-600'}`}>
                 <Icone className="w-6 h-6" />
               </span>
               <h2 className={`font-display font-black uppercase text-2xl ${destaque ? '' : 'text-slate-900'}`}>{titulo}</h2>
-              <p className={`text-sm mt-1.5 flex-1 ${destaque ? 'text-red-50' : 'text-slate-500'}`}>{texto}</p>
+              <p className={`text-sm mt-1.5 flex-1 ${destaque ? 'text-white/90' : 'text-slate-600'}`}>{texto}</p>
               <span className={`text-sm font-bold mt-5 inline-flex items-center gap-1 ${destaque ? '' : 'text-red-600'}`}>
                 {cta} <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition" />
               </span>
@@ -158,7 +158,7 @@ export default function HomePage() {
       {/* COMO FUNCIONA */}
       <section className="max-w-6xl mx-auto px-4 pt-20">
         <h2 className="titulo-secao text-3xl sm:text-4xl text-center">Reservar é simples</h2>
-        <p className="text-slate-500 text-center mt-2">Sem cadastro, sem ligação, sem espera.</p>
+        <p className="text-slate-600 text-center mt-2">Sem cadastro, sem ligação, sem espera.</p>
         <ol className="grid md:grid-cols-3 gap-4 mt-10">
           {PASSOS.map(({ icone: Icone, titulo, texto }, i) => (
             <li key={titulo} className="cartao p-6 relative">
@@ -167,7 +167,7 @@ export default function HomePage() {
               </span>
               <Icone className="w-7 h-7 text-red-600 relative" />
               <h3 className="font-display font-bold uppercase text-xl text-slate-900 mt-4 relative">{titulo}</h3>
-              <p className="text-sm text-slate-500 mt-1 relative">{texto}</p>
+              <p className="text-sm text-slate-600 mt-1 relative">{texto}</p>
             </li>
           ))}
         </ol>
@@ -178,7 +178,7 @@ export default function HomePage() {
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
             <h2 className="titulo-secao text-3xl sm:text-4xl">Nossas quadras</h2>
-            <p className="text-slate-500 mt-1">Iluminação para jogar à noite e o bar a poucos passos.</p>
+            <p className="text-slate-600 mt-1">Iluminação para jogar à noite e o bar a poucos passos.</p>
           </div>
           <Link href="/reservas/quadras" className="btn-escuro self-start sm:self-auto">
             Ver horários livres <ArrowRight className="w-4 h-4" />
@@ -204,14 +204,14 @@ export default function HomePage() {
 
       {/* EVENTOS */}
       <section className="max-w-6xl mx-auto px-4 pt-20">
-        <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-red-600 to-red-800 text-white p-8 sm:p-12 grid md:grid-cols-[1.4fr_1fr] gap-8 items-center">
+        <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-red-700 to-red-900 text-white p-8 sm:p-12 grid md:grid-cols-[1.4fr_1fr] gap-8 items-center">
           <Beer className="absolute -right-6 -bottom-6 w-56 h-56 text-white/10 rotate-12" aria-hidden="true" />
           <div className="relative">
             <span className="chip border-white/30 bg-white/10 text-white uppercase tracking-wider">
               <PartyPopper className="w-3.5 h-3.5" /> Eventos privados
             </span>
             <h2 className="font-display font-black uppercase text-4xl sm:text-5xl leading-none mt-4">Sua festa no Resenha</h2>
-            <p className="text-red-50 mt-3 max-w-lg">
+            <p className="text-white/90 mt-3 max-w-lg">
               Aniversário, churrasco da firma ou aquele encontro da turma. Escolha o quiosque, monte o pré-pedido e deixe o resto com a gente.
             </p>
             <Link href="/reservas/quiosques" className="mt-6 inline-flex items-center gap-2 bg-white text-red-700 font-bold px-6 py-3 rounded-xl hover:bg-red-50 transition">
@@ -223,7 +223,7 @@ export default function HomePage() {
               <li key={q.id} className="flex items-center justify-between gap-3 rounded-2xl bg-black/15 border border-white/15 px-4 py-3">
                 <span>
                   <strong className="block font-bold">{q.curto}</strong>
-                  <span className="text-xs text-red-100">{q.ideal}</span>
+                  <span className="text-xs text-white/90">{q.ideal}</span>
                 </span>
                 <span className="font-display font-black text-xl whitespace-nowrap">até {q.capacidade}</span>
               </li>
@@ -233,6 +233,16 @@ export default function HomePage() {
       </section>
 
       {/* FAQ */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'FAQPage',
+            mainEntity: FAQ.map(({ p, r }) => ({ '@type': 'Question', name: p, acceptedAnswer: { '@type': 'Answer', text: r } })),
+          }).replace(/</g, '\\u003c'),
+        }}
+      />
       <section className="max-w-3xl mx-auto px-4 pt-20">
         <h2 className="titulo-secao text-3xl sm:text-4xl text-center">Dúvidas frequentes</h2>
         <div className="mt-8 space-y-3">

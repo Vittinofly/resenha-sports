@@ -13,7 +13,7 @@ export default function Logo({ subtitulo, claro = false, tamanho = 'md' }) {
       <span className="leading-none">
         <span className="flex items-baseline gap-1.5">
           <span className={`font-display font-black text-2xl tracking-tight ${claro ? 'text-white' : 'text-slate-900'}`}>RESENHA</span>
-          <span className="text-[10px] font-black text-red-600 tracking-[0.2em] uppercase">Gastrobar</span>
+          <span className={`text-[10px] font-black tracking-[0.2em] uppercase ${claro ? 'text-red-400' : 'text-red-700'}`}>Gastrobar</span>
         </span>
         {subtitulo && (
           <span className={`block text-[10px] font-semibold tracking-wider uppercase mt-1 ${claro ? 'text-slate-400' : 'text-slate-500'}`}>

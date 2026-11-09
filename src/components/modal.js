@@ -1,22 +1,55 @@
 'use client';
 
-import { useEffect, useId } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { X } from 'lucide-react';
+
+const FOCAVEIS = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export default function Modal({ aberto, aoFechar, titulo, icone, largura = 'max-w-md', children }) {
   const tituloId = useId();
+  const caixa = useRef(null);
+  // Guarda aoFechar numa ref para o efeito não reiniciar (e roubar o foco) a cada render do pai
+  const fechar = useRef(aoFechar);
+  useEffect(() => {
+    fechar.current = aoFechar;
+  });
 
   useEffect(() => {
     if (!aberto) return;
-    const aoTeclar = (e) => e.key === 'Escape' && aoFechar();
+    const focoAnterior = document.activeElement;
     const overflowAnterior = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+
+    // Foco inicial: respeita autoFocus de um campo; senão, o primeiro elemento focável
+    const el = caixa.current;
+    if (el && !el.contains(document.activeElement)) {
+      const alvo = [...el.querySelectorAll(FOCAVEIS)].find((n) => n.getAttribute('aria-label') !== 'Fechar') || el;
+      alvo.focus();
+    }
+
+    const aoTeclar = (e) => {
+      if (e.key === 'Escape') return fechar.current();
+      if (e.key !== 'Tab' || !caixa.current) return;
+      // Prende o Tab dentro do diálogo
+      const itens = [...caixa.current.querySelectorAll(FOCAVEIS)];
+      if (!itens.length) return;
+      const primeiro = itens[0];
+      const ultimo = itens.at(-1);
+      if (e.shiftKey && document.activeElement === primeiro) {
+        e.preventDefault();
+        ultimo.focus();
+      } else if (!e.shiftKey && document.activeElement === ultimo) {
+        e.preventDefault();
+        primeiro.focus();
+      }
+    };
     window.addEventListener('keydown', aoTeclar);
     return () => {
       window.removeEventListener('keydown', aoTeclar);
       document.body.style.overflow = overflowAnterior;
+      if (focoAnterior instanceof HTMLElement) focoAnterior.focus();
     };
-  }, [aberto, aoFechar]);
+  }, [aberto]);
 
   if (!aberto) return null;
 
@@ -29,6 +62,8 @@ export default function Modal({ aberto, aoFechar, titulo, icone, largura = 'max-
         role="dialog"
         aria-modal="true"
         aria-labelledby={tituloId}
+        ref={caixa}
+        tabIndex={-1}
         className={`animate-entrar bg-white w-full ${largura} rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[92dvh] overflow-y-auto`}
       >
         <div className="sticky top-0 bg-white/95 backdrop-blur flex items-center justify-between gap-3 px-6 pt-5 pb-3 border-b border-slate-100">

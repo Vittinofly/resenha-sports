@@ -85,3 +85,25 @@ export const STATUS = {
 };
 
 export const STATUS_ATIVOS = ['pendente', 'agendada', 'confirmado'];
+
+// --- SINAL VIA PIX ---
+// Só fica ativo com NEXT_PUBLIC_PIX_CHAVE preenchida. O cliente vê o QR Code e o
+// "copia e cola" ao concluir a solicitação; a equipe marca "sinal pago" no painel.
+export const PIX = {
+  chave: (process.env.NEXT_PUBLIC_PIX_CHAVE || '').trim(),
+  // Nome do titular (até 25 caracteres) e cidade (até 15), como no banco
+  titular: process.env.NEXT_PUBLIC_PIX_TITULAR || 'Resenha Sports',
+  cidade: process.env.NEXT_PUBLIC_PIX_CIDADE || NEGOCIO.cidade || 'Brasil',
+};
+
+export const SINAL = {
+  // Valor fixo para reservar quiosque
+  quiosques: 100,
+  // Quadras em horário nobre: a partir de `aPartirDe` nos dias úteis, ou o dia
+  // todo no fim de semana. Valor por hora reservada.
+  quadras: { aPartirDe: '18:00', fimDeSemanaTodo: true, valorPorHora: 30 },
+  // Mesas não cobram sinal
+  mesas: 0,
+  // Até quantas horas após a solicitação o sinal deve ser enviado
+  prazoHoras: 24,
+};

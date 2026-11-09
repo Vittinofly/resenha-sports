@@ -44,11 +44,11 @@ export default function SeletorData({ valor, aoMudar, dias = 14, maxDias = 120, 
               ativo ? 'bg-red-600 border-red-600 text-white shadow-md shadow-red-900/20' : 'bg-white border-slate-200 text-slate-700 hover:border-red-300'
             }`}
           >
-            <span className={`block text-[10px] font-bold uppercase ${ativo ? 'text-red-100' : 'text-slate-400'}`}>
+            <span className={`block text-[10px] font-bold uppercase ${ativo ? 'text-white' : 'text-slate-500'}`}>
               {rotuloRelativo(data, semana)}
             </span>
             <span className="block font-display font-black text-2xl leading-none mt-0.5">{dia}</span>
-            <span className={`block text-[10px] font-semibold uppercase ${ativo ? 'text-red-100' : 'text-slate-400'}`}>{mes}</span>
+            <span className={`block text-[10px] font-semibold uppercase ${ativo ? 'text-white' : 'text-slate-500'}`}>{mes}</span>
           </button>
         );
       })}

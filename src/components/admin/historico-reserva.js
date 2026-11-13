@@ -87,7 +87,7 @@ export default function HistoricoReserva({ tipo, reservaId, versao }) {
                   <span className="font-semibold text-slate-700">{quando(item.created_at)}</span> · {descreverAutor(item)}
                 </p>
                 {item.acao === 'criada' && <p className="text-slate-800">Reserva criada</p>}
-                {item.acao === 'excluida' && <p className="text-red-700">Reserva excluída</p>}
+                {item.acao === 'excluida' && <p className="text-rose-700">Reserva excluída</p>}
                 {item.mudancas &&
                   Object.entries(item.mudancas)
                     .filter(([campo]) => ROTULOS[campo])

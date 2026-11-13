@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import Script from 'next/script';
 import { Cookie } from 'lucide-react';
-import { GA_ID, CHAVE_CONSENTIMENTO, registrarEvento } from '@/lib/analytics';
+import { CHAVE_CONSENTIMENTO, registrarEvento } from '@/lib/analytics';
+import { useEmpresa, useCaminhoAtual } from '@/components/empresa-contexto';
 
 const semAssinatura = () => () => {};
 function lerConsentimento() {
@@ -17,9 +17,10 @@ function lerConsentimento() {
 }
 
 // Google Analytics 4 com consentimento (LGPD): nada é carregado antes do "Aceitar".
-// Fora do ar sem NEXT_PUBLIC_GA_ID. O painel da equipe nunca é medido.
+// Fora do ar enquanto a empresa não informar o ID. O painel da equipe nunca é medido.
 export default function Analytics() {
-  const pathname = usePathname();
+  const { gaId: GA_ID } = useEmpresa();
+  const pathname = useCaminhoAtual();
   const salvo = useSyncExternalStore(semAssinatura, lerConsentimento, () => 'pendente-servidor');
   const [escolha, setEscolha] = useState(null);
   const consentimento = escolha ?? salvo;

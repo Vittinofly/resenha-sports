@@ -19,7 +19,7 @@ export default function ErroGlobal({ retry }) {
           textAlign: 'center',
         }}
       >
-        <title>Erro | Resenha</title>
+        <title>Erro</title>
         <main style={{ maxWidth: 420 }}>
           <p style={{ fontSize: 56, fontWeight: 900, color: '#dc2626', margin: 0 }}>Ops!</p>
           <h1 style={{ fontSize: 24, margin: '12px 0 8px' }}>O site encontrou um problema</h1>

@@ -1,32 +1,36 @@
+'use client';
+
 import Link from 'next/link';
 import { Clock, MapPin, MessageCircle, AtSign, ShieldCheck } from 'lucide-react';
 import Logo from '@/components/logo';
-import { NEGOCIO, HORARIO_FUNCIONAMENTO } from '@/lib/config';
+import { useEmpresa } from '@/components/empresa-contexto';
 import { formatarTelefone, linkWhatsApp } from '@/lib/formatadores';
 
 export default function Footer() {
+  const empresa = useEmpresa();
+  const { modulos } = empresa;
   return (
     <footer className="bg-slate-950 text-slate-300 mt-16">
       <div className="max-w-6xl mx-auto px-4 py-12 grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-3 lg:col-span-1">
-          <Logo claro subtitulo="Sports Center & Gastrobar" />
-          <p className="text-sm text-slate-400 leading-relaxed">{NEGOCIO.slogan}</p>
+          <Logo claro subtitulo={empresa.subtitulo} />
+          <p className="text-sm text-slate-400 leading-relaxed">{empresa.slogan}</p>
         </div>
 
         <div>
           <h2 className="titulo-rodape">Reservas</h2>
           <ul className="space-y-2 text-sm">
-            <li><Link href="/reservas/quadras" className="hover:text-white">Quadras de areia e padel</Link></li>
-            <li><Link href="/reservas/mesas" className="hover:text-white">Mesa no gastrobar</Link></li>
-            <li><Link href="/reservas/quiosques" className="hover:text-white">Quiosques para eventos</Link></li>
-            <li><Link href="/cardapio" className="hover:text-white">Cardápio digital</Link></li>
+            {modulos.quadras && <li><Link href="/reservas/quadras" className="hover:text-white">Quadras</Link></li>}
+            {modulos.mesas && <li><Link href="/reservas/mesas" className="hover:text-white">Mesas</Link></li>}
+            {modulos.quiosques && <li><Link href="/reservas/quiosques" className="hover:text-white">Quiosques para eventos</Link></li>}
+            {modulos.cardapio && <li><Link href="/cardapio" className="hover:text-white">Cardápio digital</Link></li>}
           </ul>
         </div>
 
         <div>
           <h2 className="titulo-rodape">Horários</h2>
           <ul className="space-y-2 text-sm">
-            {HORARIO_FUNCIONAMENTO.map((h) => (
+            {empresa.horarioFuncionamento.map((h) => (
               <li key={h.dias} className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-red-500 shrink-0" />
                 <span><strong className="text-white">{h.dias}:</strong> {h.horas}</span>
@@ -38,29 +42,29 @@ export default function Footer() {
         <div>
           <h2 className="titulo-rodape">Contato</h2>
           <ul className="space-y-2 text-sm">
-            {NEGOCIO.whatsapp && (
+            {empresa.whatsapp && (
               <li>
-                <a href={linkWhatsApp(NEGOCIO.whatsapp, 'Olá! Vim pelo site e gostaria de mais informações.')} target="_blank" rel="noreferrer" className="flex items-center gap-2 hover:text-white">
-                  <MessageCircle className="w-4 h-4 text-emerald-400" /> {formatarTelefone(NEGOCIO.whatsapp)}
+                <a href={linkWhatsApp(empresa.whatsapp, 'Olá! Vim pelo site e gostaria de mais informações.')} target="_blank" rel="noreferrer" className="flex items-center gap-2 hover:text-white">
+                  <MessageCircle className="w-4 h-4 text-emerald-400" /> {formatarTelefone(empresa.whatsapp)}
                 </a>
               </li>
             )}
-            {NEGOCIO.instagram && (
+            {empresa.instagram && (
               <li>
-                <a href={`https://instagram.com/${NEGOCIO.instagram}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 hover:text-white">
-                  <AtSign className="w-4 h-4 text-pink-400" /> @{NEGOCIO.instagram}
+                <a href={`https://instagram.com/${empresa.instagram}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 hover:text-white">
+                  <AtSign className="w-4 h-4 text-pink-400" /> @{empresa.instagram}
                 </a>
               </li>
             )}
-            {NEGOCIO.endereco && (
+            {empresa.endereco && (
               <li>
-                <a href={NEGOCIO.mapsUrl || `https://www.google.com/maps/search/${encodeURIComponent(`${NEGOCIO.endereco} ${NEGOCIO.cidade}`)}`} target="_blank" rel="noreferrer" className="flex items-start gap-2 hover:text-white">
+                <a href={empresa.mapsUrl || `https://www.google.com/maps/search/${encodeURIComponent(`${empresa.endereco} ${empresa.cidade}`)}`} target="_blank" rel="noreferrer" className="flex items-start gap-2 hover:text-white">
                   <MapPin className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                  <span>{NEGOCIO.endereco}{NEGOCIO.cidade && ` — ${NEGOCIO.cidade}`}</span>
+                  <span>{empresa.endereco}{empresa.cidade && ` — ${empresa.cidade}`}</span>
                 </a>
               </li>
             )}
-            {!NEGOCIO.whatsapp && !NEGOCIO.instagram && !NEGOCIO.endereco && (
+            {!empresa.whatsapp && !empresa.instagram && !empresa.endereco && (
               <li className="text-slate-400">Fale com a gente pelo balcão ou reserve online.</li>
             )}
           </ul>
@@ -70,7 +74,7 @@ export default function Footer() {
       <div className="border-t border-white/10">
         <div className="max-w-6xl mx-auto px-4 py-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
           <span>
-            © {NEGOCIO.nome} ·{' '}
+            © {empresa.nome} ·{' '}
             <Link href="/privacidade" className="hover:text-slate-300">Privacidade</Link>
           </span>
           <Link href="/login" className="inline-flex items-center gap-1.5 hover:text-slate-300">

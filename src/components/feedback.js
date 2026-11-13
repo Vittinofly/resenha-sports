@@ -5,12 +5,12 @@ import { CheckCircle2, AlertTriangle, Info, X } from 'lucide-react';
 import Modal from '@/components/modal';
 
 // Substitui alert()/confirm() nativos por toasts e um diálogo de confirmação
-// com a identidade visual do Resenha.
+// com a identidade visual da empresa.
 const FeedbackContext = createContext(null);
 
 const ICONES = {
   sucesso: <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />,
-  erro: <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />,
+  erro: <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0" />,
   info: <Info className="w-5 h-5 text-sky-500 shrink-0" />,
 };
 

@@ -7,13 +7,13 @@ import { hhmm, intervalosSobrepoem } from '@/lib/formatadores';
 // pedindo mais. Por isso paginamos com .range() até atingir `limite`.
 const TAMANHO_PAGINA = 1000;
 
-// Busca reservas das três tabelas, já normalizadas e ordenadas por data/hora.
-export async function buscarReservas({ tipos = Object.keys(TIPOS_RESERVA), de, ate, somenteAtivas = false, status, limite = 5000 } = {}) {
+// Busca reservas de uma empresa nas três tabelas, já normalizadas e ordenadas por data/hora.
+export async function buscarReservas({ empresaId, tipos = Object.keys(TIPOS_RESERVA), de, ate, somenteAtivas = false, status, limite = 5000 } = {}) {
   const resultados = await Promise.all(
     tipos.map(async (tipo) => {
       const linhas = [];
       for (let desde = 0; desde < limite; desde += TAMANHO_PAGINA) {
-        let consulta = supabase.from(TIPOS_RESERVA[tipo].tabela).select('*');
+        let consulta = supabase.from(TIPOS_RESERVA[tipo].tabela).select('*').eq('empresa_id', empresaId);
         if (de) consulta = consulta.gte('data_reserva', de);
         if (ate) consulta = consulta.lte('data_reserva', ate);
         if (somenteAtivas) consulta = consulta.in('status', STATUS_ATIVOS);
@@ -52,12 +52,13 @@ export function mensagemErroReserva(error, prefixo = 'Erro') {
 // Verifica se os campos de uma reserva (já no formato do banco) colidem com
 // outra reserva ativa. Retorna { mensagem } descrevendo o conflito, { erro } se
 // a consulta falhar, ou {} quando está livre. Mesas não têm controle de lotação.
-export async function verificarDisponibilidade(tipo, campos, ignorarId = null) {
+export async function verificarDisponibilidade(empresaId, tipo, campos, ignorarId = null) {
   if (tipo === 'mesas') return {};
 
   let consulta = supabase
     .from(TIPOS_RESERVA[tipo].tabela)
     .select(tipo === 'quadras' ? 'id, cliente_nome, quadra_nome, horario_inicio, horario_fim' : 'id, cliente_nome, tipo_evento')
+    .eq('empresa_id', empresaId)
     .eq('data_reserva', campos.data_reserva)
     .neq('status', 'cancelado');
   if (tipo === 'quadras') consulta = consulta.eq('quadra_nome', campos.quadra_nome);
@@ -76,10 +77,10 @@ export async function verificarDisponibilidade(tipo, campos, ignorarId = null) {
   return c ? { mensagem: `${quiosque} já tem evento de ${c.cliente_nome} nessa data.` } : {};
 }
 
-export async function contarPendentes() {
+export async function contarPendentes(empresaId) {
   const contagens = await Promise.all(
     Object.values(TIPOS_RESERVA).map(({ tabela }) =>
-      supabase.from(tabela).select('id', { count: 'exact', head: true }).eq('status', 'pendente')
+      supabase.from(tabela).select('id', { count: 'exact', head: true }).eq('empresa_id', empresaId).eq('status', 'pendente')
     )
   );
   return contagens.reduce((acc, { count }) => acc + (count || 0), 0);

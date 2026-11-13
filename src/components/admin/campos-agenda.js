@@ -1,6 +1,7 @@
 'use client';
 
-import { QUADRAS, QUIOSQUES, HORARIOS_QUADRA, HORARIOS_RESTAURANTE, DURACOES, TIPOS_EVENTO } from '@/lib/config';
+import { DURACOES } from '@/lib/config';
+import { useEmpresa } from '@/components/empresa-contexto';
 
 // Campos de "quando e onde" de uma reserva, por tipo. Usados no agendamento de
 // balcão (nova reserva) e para remarcar uma reserva existente. As regras ficam em lib/agenda.js.
@@ -10,9 +11,10 @@ export { valoresAgenda, prepararAgenda } from '@/lib/agenda';
 const comAtual = (lista, atual) => (atual && !lista.includes(atual) ? [...lista, atual].sort() : lista);
 
 export default function CamposAgenda({ tipo, valores, aoMudar, comEvento = true, idPrefixo = 'ag' }) {
+  const { quadras, quiosques, horariosQuadra, horariosMesas, tiposEvento } = useEmpresa();
   const mudar = (campo) => (e) => aoMudar({ ...valores, [campo]: campo === 'duracao' ? Number(e.target.value) : e.target.value });
   const id = (campo) => `${idPrefixo}-${campo}`;
-  const quiosque = QUIOSQUES.find((q) => q.nome === valores.quiosque_nome);
+  const quiosque = quiosques.find((q) => q.nome === valores.quiosque_nome);
   const acimaCapacidade = tipo === 'quiosques' && quiosque && Number(valores.pessoas) > quiosque.capacidade;
 
   return (
@@ -21,8 +23,8 @@ export default function CamposAgenda({ tipo, valores, aoMudar, comEvento = true,
         <div className="col-span-2">
           <label htmlFor={id('quadra')} className="rotulo">Quadra</label>
           <select id={id('quadra')} value={valores.quadra_nome} onChange={mudar('quadra_nome')} className="input">
-            {comAtual(QUADRAS.map((q) => q.nome), valores.quadra_nome).map((nome) => {
-              const q = QUADRAS.find((x) => x.nome === nome);
+            {comAtual(quadras.map((q) => q.nome), valores.quadra_nome).map((nome) => {
+              const q = quadras.find((x) => x.nome === nome);
               return <option key={nome} value={nome}>{q ? `${q.curto} — ${q.esportes}` : nome}</option>;
             })}
           </select>
@@ -33,7 +35,7 @@ export default function CamposAgenda({ tipo, valores, aoMudar, comEvento = true,
         <div className="col-span-2">
           <label htmlFor={id('quiosque')} className="rotulo">Quiosque</label>
           <select id={id('quiosque')} value={valores.quiosque_nome} onChange={mudar('quiosque_nome')} className="input">
-            {comAtual(QUIOSQUES.map((q) => q.nome), valores.quiosque_nome).map((nome) => <option key={nome} value={nome}>{nome}</option>)}
+            {comAtual(quiosques.map((q) => q.nome), valores.quiosque_nome).map((nome) => <option key={nome} value={nome}>{nome}</option>)}
           </select>
         </div>
       )}
@@ -47,7 +49,7 @@ export default function CamposAgenda({ tipo, valores, aoMudar, comEvento = true,
         <div>
           <label htmlFor={id('inicio')} className="rotulo">{tipo === 'mesas' ? 'Chegada' : 'Início'}</label>
           <select id={id('inicio')} value={valores.inicio} onChange={mudar('inicio')} className="input">
-            {comAtual(tipo === 'mesas' ? HORARIOS_RESTAURANTE : HORARIOS_QUADRA, valores.inicio).map((h) => <option key={h}>{h}</option>)}
+            {comAtual(tipo === 'mesas' ? horariosMesas : horariosQuadra, valores.inicio).map((h) => <option key={h}>{h}</option>)}
           </select>
         </div>
       )}
@@ -83,7 +85,7 @@ export default function CamposAgenda({ tipo, valores, aoMudar, comEvento = true,
         <div className="col-span-2">
           <label htmlFor={id('evento')} className="rotulo">Tipo de evento</label>
           <select id={id('evento')} value={valores.evento} onChange={mudar('evento')} className="input">
-            {comAtual(TIPOS_EVENTO, valores.evento).map((t) => <option key={t}>{t}</option>)}
+            {comAtual(tiposEvento, valores.evento).map((t) => <option key={t}>{t}</option>)}
           </select>
         </div>
       )}

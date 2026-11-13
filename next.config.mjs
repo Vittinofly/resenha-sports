@@ -2,10 +2,8 @@
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseWs = supabaseUrl.replace(/^http/, 'ws');
 const isDev = process.env.NODE_ENV !== 'production';
-// Google Analytics só entra na política quando configurado
-const ga = process.env.NEXT_PUBLIC_GA_ID
-  ? { script: ' https://www.googletagmanager.com', connect: ' https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com' }
-  : { script: '', connect: '' };
+// Cada empresa pode ter o próprio Google Analytics; o script só carrega após o consentimento
+const ga = { script: ' https://www.googletagmanager.com', connect: ' https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com' };
 
 const csp = [
   "default-src 'self'",

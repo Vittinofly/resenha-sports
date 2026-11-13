@@ -2,33 +2,35 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { Menu, X, Dumbbell, Utensils, PartyPopper, BookOpen } from 'lucide-react';
 import Logo from '@/components/logo';
+import { useEmpresa, useCaminhoAtual } from '@/components/empresa-contexto';
 
-export const LINKS_PUBLICOS = [
-  { href: '/reservas/quadras', label: 'Quadras', icone: Dumbbell },
-  { href: '/reservas/mesas', label: 'Mesas', icone: Utensils },
-  { href: '/reservas/quiosques', label: 'Quiosques', icone: PartyPopper },
-  { href: '/cardapio', label: 'Cardápio', icone: BookOpen },
+const LINKS_PUBLICOS = [
+  { modulo: 'quadras', href: '/reservas/quadras', label: 'Quadras', icone: Dumbbell },
+  { modulo: 'mesas', href: '/reservas/mesas', label: 'Mesas', icone: Utensils },
+  { modulo: 'quiosques', href: '/reservas/quiosques', label: 'Quiosques', icone: PartyPopper },
+  { modulo: 'cardapio', href: '/cardapio', label: 'Cardápio', icone: BookOpen },
 ];
 
 // `navegacao={false}` é usado no painel admin, que tem a própria navegação.
-export default function Header({ subtitulo = 'Sports Center & Gastrobar', navegacao = true, acoes = null }) {
-  const pathname = usePathname();
+export default function Header({ subtitulo, navegacao = true, acoes = null }) {
+  const empresa = useEmpresa();
+  const pathname = useCaminhoAtual();
+  const links = LINKS_PUBLICOS.filter((l) => empresa.modulos[l.modulo]);
   const [menuAberto, setMenuAberto] = useState(false);
 
   return (
     <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200">
       <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
-        <Link href="/" className="shrink-0" onClick={() => setMenuAberto(false)} aria-label="Resenha — página inicial">
-          <Logo subtitulo={subtitulo} />
+        <Link href="/" className="shrink-0" onClick={() => setMenuAberto(false)} aria-label={`${empresa.nomeCurto} — página inicial`}>
+          <Logo subtitulo={subtitulo || empresa.subtitulo} />
         </Link>
 
         {navegacao && (
           <>
             <nav className="hidden md:flex items-center gap-1" aria-label="Principal">
-              {LINKS_PUBLICOS.map((l) => {
+              {links.map((l) => {
                 const ativo = pathname.startsWith(l.href);
                 return (
                   <Link
@@ -43,9 +45,11 @@ export default function Header({ subtitulo = 'Sports Center & Gastrobar', navega
                   </Link>
                 );
               })}
-              <Link href="/reservas/quadras" className="btn-primario ml-2 !py-2">
-                Reservar agora
-              </Link>
+              {empresa.reservaPrincipal && (
+                <Link href={`/reservas/${empresa.reservaPrincipal}`} className="btn-primario ml-2 !py-2">
+                  Reservar agora
+                </Link>
+              )}
             </nav>
 
             <button
@@ -64,7 +68,7 @@ export default function Header({ subtitulo = 'Sports Center & Gastrobar', navega
 
       {navegacao && menuAberto && (
         <nav className="md:hidden border-t border-slate-200 bg-white px-4 py-3 grid grid-cols-2 gap-2 animate-entrar" aria-label="Menu móvel">
-          {LINKS_PUBLICOS.map(({ href, label, icone: Icone }) => (
+          {links.map(({ href, label, icone: Icone }) => (
             <Link
               key={href}
               href={href}

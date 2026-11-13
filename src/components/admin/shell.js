@@ -2,24 +2,26 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, CalendarRange, ListChecks, Users, UtensilsCrossed, LogOut, Loader2, ExternalLink, KeyRound, Bell, BellOff } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { LayoutDashboard, CalendarRange, ListChecks, Users, UtensilsCrossed, LogOut, Loader2, ExternalLink, KeyRound, Bell, BellOff, Settings } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { contarPendentes } from '@/lib/admin';
 import { TIPOS_RESERVA } from '@/lib/reservas';
 import { formatarData, hhmm } from '@/lib/formatadores';
 import { useFeedback } from '@/components/feedback';
 import Logo from '@/components/logo';
+import { useEmpresa, useCaminhoAtual } from '@/components/empresa-contexto';
 
 const TEMPO_INATIVIDADE_MS = 30 * 60 * 1000;
 const INTERVALO_PENDENTES_MS = 60 * 1000;
 
 const NAV = [
   { href: '/admin', label: 'Visão geral', icone: LayoutDashboard, exato: true },
-  { href: '/admin/quadras', label: 'Agenda de quadras', icone: CalendarRange },
+  { href: '/admin/quadras', label: 'Agenda de quadras', icone: CalendarRange, modulo: 'quadras' },
   { href: '/admin/reservas', label: 'Reservas', icone: ListChecks, badge: true },
   { href: '/admin/clientes', label: 'Clientes', icone: Users },
-  { href: '/admin/cardapio', label: 'Cardápio', icone: UtensilsCrossed },
+  { href: '/admin/cardapio', label: 'Cardápio', icone: UtensilsCrossed, modulo: 'cardapio' },
+  { href: '/admin/configuracoes', label: 'Configurações', icone: Settings, somenteAdmin: true },
 ];
 
 const CHAVE_ALERTAS = 'resenha:alertas';
@@ -72,7 +74,8 @@ export const useAdmin = () => useContext(AdminContext);
 
 export default function AdminShell({ children }) {
   const router = useRouter();
-  const pathname = usePathname();
+  const empresa = useEmpresa();
+  const pathname = useCaminhoAtual();
   const { toast } = useFeedback();
   const [usuario, setUsuario] = useState(null);
   const [verificando, setVerificando] = useState(true);
@@ -132,13 +135,13 @@ export default function AdminShell({ children }) {
   };
 
   const atualizarPendentes = useCallback(async () => {
-    const total = await contarPendentes();
+    const total = await contarPendentes(empresa.id);
     if (pendentesAnteriores.current !== null && total > pendentesAnteriores.current) {
       toast(`Nova solicitação de reserva! (${total} pendente${total > 1 ? 's' : ''})`, 'info');
     }
     pendentesAnteriores.current = total;
     setPendentes(total);
-  }, [toast]);
+  }, [toast, empresa.id]);
 
   // Sessão
   useEffect(() => {
@@ -149,18 +152,19 @@ export default function AdminShell({ children }) {
         router.replace('/login');
         return;
       }
-      // Só quem está na tabela `equipe` acessa o painel (ver supabase/seguranca.sql).
-      // Se a tabela ainda não existe (script não rodado), a consulta dá erro e o
-      // comportamento antigo é mantido.
-      const { data: membro, error } = await supabase.from('equipe').select('papel').eq('user_id', user.id).maybeSingle();
+      // Só quem faz parte da equipe DESTA empresa (ou é super-usuário) acessa o painel.
+      const [{ data: membro, error }, { data: ehSuper }] = await Promise.all([
+        supabase.from('equipe').select('papel').eq('empresa_id', empresa.id).eq('user_id', user.id).maybeSingle(),
+        supabase.rpc('is_super'),
+      ]);
       if (!ativo) return;
       // Erro de rede não derruba a sessão: os dados continuam protegidos pelo RLS do banco.
-      if (!error && !membro) {
+      if (!error && !membro && !ehSuper) {
         await supabase.auth.signOut();
         router.replace('/login?motivo=sem-acesso');
         return;
       }
-      setUsuario({ ...user, papel: membro?.papel || 'admin' });
+      setUsuario({ ...user, papel: ehSuper ? 'admin' : membro?.papel || 'atendente' });
       setVerificando(false);
     });
 
@@ -172,7 +176,7 @@ export default function AdminShell({ children }) {
       ativo = false;
       listener.subscription.unsubscribe();
     };
-  }, [router]);
+  }, [router, empresa.id]);
 
   // Logout automático após 30 min sem interação
   useEffect(() => {
@@ -210,9 +214,9 @@ export default function AdminShell({ children }) {
   // O polling acima continua como reserva caso a conexão caia.
   useEffect(() => {
     if (!usuario) return;
-    const canal = supabase.channel('painel-reservas');
+    const canal = supabase.channel(`painel-reservas-${empresa.id}`);
     for (const [tipo, { tabela, label }] of Object.entries(TIPOS_RESERVA)) {
-      canal.on('postgres_changes', { event: 'INSERT', schema: 'public', table: tabela }, ({ new: linha }) => {
+      canal.on('postgres_changes', { event: 'INSERT', schema: 'public', table: tabela, filter: `empresa_id=eq.${empresa.id}` }, ({ new: linha }) => {
         if (linha?.status !== 'pendente') return; // agendamentos de balcão não alertam
         atualizarPendentes();
         alertar(`Nova reserva: ${label}`, `${String(linha.cliente_nome || '').split('|')[0]} · ${formatarData(linha.data_reserva)}${linha.horario_inicio ? ` ${hhmm(linha.horario_inicio)}` : ''}`, `${tipo}-${linha.id}`);
@@ -222,13 +226,13 @@ export default function AdminShell({ children }) {
     return () => {
       supabase.removeChannel(canal);
     };
-  }, [usuario, atualizarPendentes, alertar]);
+  }, [usuario, atualizarPendentes, alertar, empresa.id]);
 
   // Título da aba com o número de pendentes
   useEffect(() => {
-    const base = 'Painel | Resenha';
+    const base = `Painel | ${empresa.nomeCurto}`;
     document.title = pendentes > 0 ? `(${pendentes}) ${base}` : base;
-  }, [pendentes]);
+  }, [pendentes, empresa.nomeCurto]);
 
   if (verificando) {
     return (
@@ -259,7 +263,7 @@ export default function AdminShell({ children }) {
           </div>
 
           <nav className="flex lg:flex-col gap-1 px-2 pb-2 lg:px-3 overflow-x-auto [scrollbar-width:none]" aria-label="Admin">
-            {NAV.map((item) => {
+            {NAV.filter((item) => (!item.modulo || empresa.modulos[item.modulo]) && (!item.somenteAdmin || usuario?.papel === 'admin')).map((item) => {
               const Icone = item.icone;
               const selecionado = ativo(item);
               return (

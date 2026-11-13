@@ -3,12 +3,12 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Check, CheckCircle2, Copy, Link2, MessageCircle, CalendarPlus, RotateCcw } from 'lucide-react';
-import { NEGOCIO } from '@/lib/config';
+import { useEmpresa } from '@/components/empresa-contexto';
 import { formatarMoeda, linkWhatsApp, minutosParaHora, horaParaMinutos } from '@/lib/formatadores';
 import { linkReservaCliente } from '@/lib/reservas';
 import PagamentoPix from '@/components/pagamento-pix';
 
-function linkGoogleAgenda({ titulo, data, inicio, fim, detalhes }) {
+function linkGoogleAgenda(empresa, { titulo, data, inicio, fim, detalhes }) {
   const d = data.replace(/-/g, '');
   const h = (hora) => hora.replace(':', '') + '00';
   const datas = inicio
@@ -20,7 +20,7 @@ function linkGoogleAgenda({ titulo, data, inicio, fim, detalhes }) {
     dates: datas,
     details: detalhes,
     ctz: 'America/Sao_Paulo',
-    ...(NEGOCIO.endereco && { location: `${NEGOCIO.endereco} ${NEGOCIO.cidade}` }),
+    ...(empresa.endereco && { location: `${empresa.endereco} ${empresa.cidade}` }),
   });
   return `https://calendar.google.com/calendar/render?${params}`;
 }
@@ -51,7 +51,8 @@ function LinkDaReserva({ link }) {
 
 // `resumo` = { titulo, tipo, token, sinal, linhas: [[rótulo, valor]], mensagemWhatsApp, agenda: {titulo, data, inicio, fim, detalhes} }
 export default function SucessoReserva({ resumo, aoNovaReserva, textoNova = 'Fazer outra reserva' }) {
-  const linkCliente = linkReservaCliente(resumo.tipo, resumo.token);
+  const empresa = useEmpresa();
+  const linkCliente = linkReservaCliente(empresa, resumo.tipo, resumo.token);
   const mensagem = [
     resumo.mensagemWhatsApp,
     resumo.sinal > 0 ? `\nVou enviar o sinal de ${formatarMoeda(resumo.sinal)} via Pix e mando o comprovante aqui.` : '',
@@ -80,13 +81,13 @@ export default function SucessoReserva({ resumo, aoNovaReserva, textoNova = 'Faz
       {linkCliente && <LinkDaReserva link={linkCliente} />}
 
       <div className="grid sm:grid-cols-2 gap-2 mt-6">
-        {NEGOCIO.whatsapp && (
-          <a href={linkWhatsApp(NEGOCIO.whatsapp, mensagem)} target="_blank" rel="noreferrer" className="btn-whatsapp sm:col-span-2 !py-3">
+        {empresa.whatsapp && (
+          <a href={linkWhatsApp(empresa.whatsapp, mensagem)} target="_blank" rel="noreferrer" className="btn-whatsapp sm:col-span-2 !py-3">
             <MessageCircle className="w-5 h-5" /> {resumo.sinal > 0 ? 'Enviar comprovante pelo WhatsApp' : 'Agilizar confirmação pelo WhatsApp'}
           </a>
         )}
         {resumo.agenda && (
-          <a href={linkGoogleAgenda(resumo.agenda)} target="_blank" rel="noreferrer" className="btn-secundario">
+          <a href={linkGoogleAgenda(empresa, resumo.agenda)} target="_blank" rel="noreferrer" className="btn-secundario">
             <CalendarPlus className="w-4 h-4" /> Salvar na agenda
           </a>
         )}
@@ -95,10 +96,12 @@ export default function SucessoReserva({ resumo, aoNovaReserva, textoNova = 'Faz
         </button>
       </div>
 
-      <p className="text-xs text-slate-400 mt-6">
-        Enquanto isso, que tal dar uma olhada no{' '}
-        <Link href="/cardapio" className="font-bold text-red-600 hover:underline">cardápio</Link>?
-      </p>
+      {empresa.modulos.cardapio && (
+        <p className="text-xs text-slate-400 mt-6">
+          Enquanto isso, que tal dar uma olhada no{' '}
+          <Link href="/cardapio" className="font-bold text-red-600 hover:underline">cardápio</Link>?
+        </p>
+      )}
     </div>
   );
 }

@@ -1,45 +1,48 @@
 // Regras de "quando e onde" de uma reserva (sem JSX, para poder ser testado).
 // Usadas no agendamento de balcão e na remarcação (ver components/admin/campos-agenda.js).
-import { QUADRAS, QUIOSQUES, HORARIOS_QUADRA, FECHAMENTO_QUADRAS, TIPOS_EVENTO } from '@/lib/config';
 import { montarDetalhes, parseDetalhes } from '@/lib/reservas';
 import { horaParaMinutos, minutosParaHora } from '@/lib/formatadores';
 
 const PERMANENCIA_MESA_MIN = 120;
 
 // Valores do formulário a partir de uma reserva normalizada (remarcar) ou de padrões (nova).
-export function valoresAgenda(tipo, { reserva, data_reserva, quadra_nome, inicio } = {}) {
+export function valoresAgenda(empresa, tipo, { reserva, data_reserva, quadra_nome, inicio } = {}) {
+  const quadraPadrao = empresa.quadras[0]?.nome || '';
+  const quiosquePadrao = empresa.quiosques[0]?.nome || '';
+  const inicioPadrao = tipo === 'mesas' ? (empresa.horariosMesas.includes('19:00') ? '19:00' : empresa.horariosMesas[0]) : empresa.horariosQuadra[0];
+  const eventoPadrao = empresa.tiposEvento[0];
   if (reserva) {
     const duracao = Math.max(1, Math.round((horaParaMinutos(reserva.fim) - horaParaMinutos(reserva.inicio)) / 60));
     return {
       data_reserva: reserva.data_reserva,
-      quadra_nome: reserva.quadra_nome || QUADRAS[0].nome,
-      inicio: reserva.inicio || (tipo === 'mesas' ? '19:00' : HORARIOS_QUADRA[0]),
+      quadra_nome: reserva.quadra_nome || quadraPadrao,
+      inicio: reserva.inicio || inicioPadrao,
       duracao: reserva.fim ? duracao : 1,
       pessoas: String(reserva.pessoas || ''),
-      quiosque_nome: tipo === 'quiosques' ? reserva.local : QUIOSQUES[0].nome,
-      evento: reserva.evento || TIPOS_EVENTO[0],
+      quiosque_nome: tipo === 'quiosques' ? reserva.local : quiosquePadrao,
+      evento: reserva.evento || eventoPadrao,
     };
   }
   return {
     data_reserva: data_reserva || '',
-    quadra_nome: quadra_nome || QUADRAS[0].nome,
-    inicio: inicio || (tipo === 'mesas' ? '19:00' : HORARIOS_QUADRA[0]),
+    quadra_nome: quadra_nome || quadraPadrao,
+    inicio: inicio || inicioPadrao,
     duracao: 1,
     pessoas: tipo === 'quiosques' ? '20' : '2',
-    quiosque_nome: QUIOSQUES[0].nome,
-    evento: TIPOS_EVENTO[0],
+    quiosque_nome: quiosquePadrao,
+    evento: eventoPadrao,
   };
 }
 
 // Converte os valores do formulário em colunas do banco. Retorna { campos } ou { erro }.
 // `original` (reserva sendo remarcada) preserva o pré-pedido guardado em tipo_evento.
-export function prepararAgenda(tipo, v, original = null) {
+export function prepararAgenda(empresa, tipo, v, original = null) {
   if (!v.data_reserva) return { erro: 'Informe a data.' };
   const pedido = original?.itens?.join(', ') || '';
 
   if (tipo === 'quadras') {
     const fim = horaParaMinutos(v.inicio) + v.duracao * 60;
-    if (fim > FECHAMENTO_QUADRAS * 60) return { erro: `O término não pode passar das ${FECHAMENTO_QUADRAS}:00.` };
+    if (fim > empresa.fechamentoQuadras * 60) return { erro: `O término não pode passar das ${empresa.fechamentoQuadras}:00.` };
     return { campos: { data_reserva: v.data_reserva, quadra_nome: v.quadra_nome, horario_inicio: v.inicio, horario_fim: minutosParaHora(fim) } };
   }
 

@@ -17,6 +17,15 @@
 -- em Authentication > Users.
 -- =====================================================================
 
+-- Depois da migração multi-tenant este arquivo não pode rodar de novo: ele
+-- recolocaria as regras sem separação por empresa.
+do $$
+begin
+  if to_regclass('public.empresas') is not null then
+    raise exception 'Banco já migrado para multi-tenant. Rode apenas supabase/multi-tenant.sql.';
+  end if;
+end $$;
+
 -- ---------- RLS ligado em todas as tabelas ----------
 alter table public.cardapio           enable row level security;
 alter table public.reservas_quadras   enable row level security;

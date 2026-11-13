@@ -3,14 +3,16 @@
 import { useMemo, useState } from 'react';
 import { Search, UtensilsCrossed, X } from 'lucide-react';
 import { useCardapioDisponivel, agruparPorCategoria, normalizarBusca } from '@/lib/cardapio';
+import { useEmpresa } from '@/components/empresa-contexto';
 import { formatarMoeda } from '@/lib/formatadores';
 
 export default function CardapioViewer() {
+  const { categoriasCardapio } = useEmpresa();
   const { itens, carregando, erro } = useCardapioDisponivel();
   const [busca, setBusca] = useState('');
   const [categoriaAtiva, setCategoriaAtiva] = useState('Todos');
 
-  const grupos = useMemo(() => agruparPorCategoria(itens), [itens]);
+  const grupos = useMemo(() => agruparPorCategoria(itens, categoriasCardapio), [itens, categoriasCardapio]);
   const termo = normalizarBusca(busca);
 
   const gruposFiltrados = grupos

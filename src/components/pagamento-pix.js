@@ -3,14 +3,15 @@
 import { useEffect, useState } from 'react';
 import { Check, Copy, QrCode } from 'lucide-react';
 import QRCode from 'qrcode';
-import { SINAL } from '@/lib/config';
+import { useEmpresa } from '@/components/empresa-contexto';
 import { gerarPixCopiaECola } from '@/lib/pix';
 import { formatarMoeda } from '@/lib/formatadores';
 
 // Bloco de pagamento do sinal: QR Code + "copia e cola". `txid` identifica a
 // reserva no extrato (usamos o início do token do cliente).
 export default function PagamentoPix({ valor, txid }) {
-  const codigo = gerarPixCopiaECola({ valor, txid: txid || '***' });
+  const { pix, sinal } = useEmpresa();
+  const codigo = gerarPixCopiaECola({ ...pix, valor, txid: txid || '***' });
   const [qr, setQr] = useState('');
   const [copiado, setCopiado] = useState(false);
 
@@ -43,7 +44,7 @@ export default function PagamentoPix({ valor, txid }) {
         <QrCode className="w-5 h-5 text-amber-600" /> Sinal de {formatarMoeda(valor)} via Pix
       </h3>
       <p className="text-xs text-slate-700 mt-1">
-        Para garantir sua reserva, pague o sinal em até {SINAL.prazoHoras}h e envie o comprovante pelo WhatsApp. O valor é abatido da conta.
+        Para garantir sua reserva, pague o sinal em até {sinal.prazoHoras}h e envie o comprovante pelo WhatsApp. O valor é abatido da conta.
       </p>
       <div className="mt-4 flex flex-col sm:flex-row gap-4 items-center">
         {qr ? (

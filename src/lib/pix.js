@@ -1,5 +1,4 @@
 // Pix "copia e cola" (BR Code, padrão EMV MPM do Banco Central) e regras de sinal.
-import { PIX, SINAL } from '@/lib/config';
 
 const campo = (id, valor) => `${id}${String(valor.length).padStart(2, '0')}${valor}`;
 
@@ -24,7 +23,7 @@ export function crc16(texto) {
 }
 
 // Gera o código "copia e cola". `txid`: até 25 caracteres alfanuméricos.
-export function gerarPixCopiaECola({ chave = PIX.chave, titular = PIX.titular, cidade = PIX.cidade, valor, txid = '***', descricao = '' }) {
+export function gerarPixCopiaECola({ chave, titular, cidade, valor, txid = '***', descricao = '' }) {
   if (!chave) return '';
   const conta = campo('00', 'br.gov.bcb.pix') + campo('01', chave) + (descricao ? campo('02', descricao.slice(0, 40)) : '');
   const id = txid === '***' ? '***' : String(txid).replace(/[^A-Za-z0-9]/g, '').slice(0, 25) || '***';
@@ -42,10 +41,8 @@ export function gerarPixCopiaECola({ chave = PIX.chave, titular = PIX.titular, c
   return corpo + crc16(corpo);
 }
 
-export const pixAtivo = () => !!PIX.chave;
-
-// Valor do sinal para uma reserva. `data` = 'YYYY-MM-DD', `inicio`/`fim` = 'HH:MM'.
-export function calcularSinal(tipo, { data, inicio, fim } = {}, regras = SINAL, ativo = pixAtivo()) {
+// Valor do sinal para uma reserva, conforme as regras da empresa. `data` = 'YYYY-MM-DD', `inicio`/`fim` = 'HH:MM'.
+export function calcularSinal(tipo, { data, inicio, fim } = {}, regras = {}, ativo = false) {
   if (!ativo) return 0;
   if (tipo === 'quiosques') return regras.quiosques || 0;
   if (tipo === 'mesas') return regras.mesas || 0;

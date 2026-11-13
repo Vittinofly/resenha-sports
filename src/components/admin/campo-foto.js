@@ -21,7 +21,8 @@ async function otimizarImagem(arquivo) {
 }
 
 // Foto de item do cardápio: envio para o Supabase Storage ou link https.
-export default function CampoFoto({ valor, aoMudar }) {
+// `pasta`: id da empresa. O banco só deixa a equipe gravar na pasta da própria empresa.
+export default function CampoFoto({ valor, aoMudar, pasta }) {
   const { toast } = useFeedback();
   const idUrl = useId();
   const entrada = useRef(null);
@@ -36,7 +37,7 @@ export default function CampoFoto({ valor, aoMudar }) {
     setEnviando(true);
     try {
       const blob = await otimizarImagem(arquivo);
-      const caminho = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.webp`;
+      const caminho = `${pasta}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.webp`;
       const { error } = await supabase.storage.from(BUCKET).upload(caminho, blob, { contentType: 'image/webp', cacheControl: '31536000' });
       if (error) throw error;
       aoMudar(supabase.storage.from(BUCKET).getPublicUrl(caminho).data.publicUrl);

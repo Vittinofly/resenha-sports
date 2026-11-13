@@ -3,14 +3,16 @@
 import { useMemo, useState } from 'react';
 import { Minus, Plus, Search, ShoppingBag } from 'lucide-react';
 import { agruparPorCategoria, normalizarBusca } from '@/lib/cardapio';
+import { useEmpresa } from '@/components/empresa-contexto';
 import { formatarMoeda } from '@/lib/formatadores';
 
 // Seletor de itens do cardápio para pré-pedido.
 // `selecionados` = { [idProduto]: quantidade }
 export default function PrePedido({ cardapio, carregando, selecionados, aoMudar }) {
+  const { categoriasCardapio } = useEmpresa();
   const [busca, setBusca] = useState('');
   const [categoria, setCategoria] = useState('');
-  const grupos = useMemo(() => agruparPorCategoria(cardapio), [cardapio]);
+  const grupos = useMemo(() => agruparPorCategoria(cardapio, categoriasCardapio), [cardapio, categoriasCardapio]);
   const categoriaAtual = categoria || grupos[0]?.[0] || '';
   const termo = normalizarBusca(busca);
 

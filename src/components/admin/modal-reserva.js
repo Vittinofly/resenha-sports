@@ -5,6 +5,7 @@ import { Banknote, CalendarClock, CalendarDays, CheckCircle2, Clock, Flag, Loade
 import Modal from '@/components/modal';
 import { useFeedback } from '@/components/feedback';
 import { BadgeStatus, IconeTipo } from '@/components/admin/ui';
+import { useEmpresa } from '@/components/empresa-contexto';
 import CamposAgenda, { prepararAgenda, valoresAgenda } from '@/components/admin/campos-agenda';
 import { atualizarReserva, mensagemErroReserva, verificarDisponibilidade } from '@/lib/admin';
 import { MODELOS_MENSAGEM, TIPOS_RESERVA, ERRO_CONFLITO_DB, ERRO_DUPLICADO_DB, normalizarReserva } from '@/lib/reservas';
@@ -15,6 +16,7 @@ import HistoricoReserva from '@/components/admin/historico-reserva';
 // O componente pai deve passar `key={reserva.chave}` para reiniciar o estado ao trocar de reserva.
 export default function ModalReserva({ reserva, aoFechar, aoAtualizar }) {
   const { toast, confirmar } = useFeedback();
+  const empresa = useEmpresa();
   const [salvando, setSalvando] = useState(null);
   const [observacao, setObservacao] = useState(reserva?.observacoes || '');
   const [atual, setAtual] = useState(reserva);
@@ -26,11 +28,11 @@ export default function ModalReserva({ reserva, aoFechar, aoAtualizar }) {
 
   const remarcar = async (e) => {
     e.preventDefault();
-    const { campos, erro } = prepararAgenda(atual.tipo, agenda, atual);
+    const { campos, erro } = prepararAgenda(empresa, atual.tipo, agenda, atual);
     if (erro) return toast(erro, 'erro');
 
     setSalvando('remarcar');
-    const { mensagem, erro: erroConsulta } = await verificarDisponibilidade(atual.tipo, campos, atual.id);
+    const { mensagem, erro: erroConsulta } = await verificarDisponibilidade(empresa.id, atual.tipo, campos, atual.id);
     if (mensagem || erroConsulta) {
       setSalvando(null);
       return toast(mensagem || 'Não foi possível verificar a disponibilidade. Tente novamente.', 'erro');
@@ -167,7 +169,7 @@ export default function ModalReserva({ reserva, aoFechar, aoAtualizar }) {
               </div>
             </form>
           ) : (
-            <button type="button" onClick={() => setAgenda(valoresAgenda(atual.tipo, { reserva: atual }))} className="btn-secundario w-full !text-xs">
+            <button type="button" onClick={() => setAgenda(valoresAgenda(empresa, atual.tipo, { reserva: atual }))} className="btn-secundario w-full !text-xs">
               <CalendarClock className="w-4 h-4 text-red-600" /> Remarcar data, horário ou local
             </button>
           )
@@ -218,12 +220,12 @@ export default function ModalReserva({ reserva, aoFechar, aoAtualizar }) {
         <div>
           <p className="rotulo">Mensagem rápida no WhatsApp</p>
           <div className="grid grid-cols-2 gap-2">
-            {Object.entries(MODELOS_MENSAGEM).filter(([, m]) => !m.disponivel || m.disponivel(atual)).map(([chave, modelo]) => {
+            {Object.entries(MODELOS_MENSAGEM).filter(([, m]) => !m.disponivel || m.disponivel(atual, empresa)).map(([chave, modelo]) => {
               const destaque = remarcada ? chave === 'remarcacao' : chave === 'confirmacao' && atual.status === 'confirmado';
               return (
                 <a
                   key={chave}
-                  href={linkWhatsApp(atual.cliente_whatsapp, modelo.texto(atual))}
+                  href={linkWhatsApp(atual.cliente_whatsapp, modelo.texto(atual, empresa))}
                   target="_blank"
                   rel="noreferrer"
                   className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-bold border transition ${

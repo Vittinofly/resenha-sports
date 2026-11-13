@@ -7,6 +7,7 @@ import { verificarDisponibilidade } from '@/lib/admin';
 import { TIPOS_RESERVA, ERRO_CONFLITO_DB, ERRO_DUPLICADO_DB, normalizarReserva } from '@/lib/reservas';
 import { apenasDigitos, formatarTelefone, telefoneValido } from '@/lib/formatadores';
 import { useFeedback } from '@/components/feedback';
+import { useEmpresa } from '@/components/empresa-contexto';
 import { Segmentado } from '@/components/admin/ui';
 import CamposAgenda, { prepararAgenda, valoresAgenda } from '@/components/admin/campos-agenda';
 import Modal from '@/components/modal';
@@ -16,15 +17,16 @@ import Modal from '@/components/modal';
 // Monte só enquanto aberto (`{novo && <ModalNovaReserva .../>}`) para o formulário sempre começar limpo.
 export default function ModalNovaReserva({ inicial, aoFechar, aoCriar, tipoFixo = false }) {
   const { toast } = useFeedback();
-  const [tipo, setTipo] = useState(inicial.tipo || 'quadras');
-  const [agenda, setAgenda] = useState(() => valoresAgenda(inicial.tipo || 'quadras', inicial));
+  const empresa = useEmpresa();
+  const [tipo, setTipo] = useState(inicial.tipo || empresa.reservaPrincipal);
+  const [agenda, setAgenda] = useState(() => valoresAgenda(empresa, inicial.tipo || empresa.reservaPrincipal, inicial));
   const [contato, setContato] = useState({ nome: '', whatsapp: '' });
   const [observacoes, setObservacoes] = useState('');
   const [salvando, setSalvando] = useState(false);
 
   const trocarTipo = (novo) => {
     setTipo(novo);
-    setAgenda((v) => ({ ...valoresAgenda(novo, inicial), data_reserva: v.data_reserva }));
+    setAgenda((v) => ({ ...valoresAgenda(empresa, novo, inicial), data_reserva: v.data_reserva }));
   };
 
   const salvar = async (e) => {
@@ -33,17 +35,17 @@ export default function ModalNovaReserva({ inicial, aoFechar, aoCriar, tipoFixo 
     if (nome.length < 2) return toast('Informe o nome do cliente.', 'erro');
     if (!telefoneValido(contato.whatsapp)) return toast('WhatsApp inválido (DDD + número).', 'erro');
 
-    const { campos, erro } = prepararAgenda(tipo, agenda);
+    const { campos, erro } = prepararAgenda(empresa, tipo, agenda);
     if (erro) return toast(erro, 'erro');
 
     setSalvando(true);
-    const { mensagem, erro: erroConsulta } = await verificarDisponibilidade(tipo, campos);
+    const { mensagem, erro: erroConsulta } = await verificarDisponibilidade(empresa.id, tipo, campos);
     if (mensagem || erroConsulta) {
       setSalvando(false);
       return toast(mensagem || 'Não foi possível verificar a disponibilidade. Tente novamente.', 'erro');
     }
 
-    const linha = { ...campos, cliente_nome: nome, cliente_whatsapp: contato.whatsapp, observacoes: observacoes.trim(), status: 'confirmado' };
+    const linha = { ...campos, empresa_id: empresa.id, cliente_nome: nome, cliente_whatsapp: contato.whatsapp, observacoes: observacoes.trim(), status: 'confirmado' };
     const { data, error } = await supabase.from(TIPOS_RESERVA[tipo].tabela).insert([linha]).select().single();
     setSalvando(false);
 
@@ -56,6 +58,8 @@ export default function ModalNovaReserva({ inicial, aoFechar, aoCriar, tipoFixo 
     aoFechar();
   };
 
+  if (!tipo) return null; // empresa sem nenhum módulo de reserva
+
   return (
     <Modal aberto aoFechar={aoFechar} titulo="Novo agendamento" icone={<Plus className="w-5 h-5 text-red-600" />}>
       <form onSubmit={salvar} className="space-y-4">
@@ -64,7 +68,7 @@ export default function ModalNovaReserva({ inicial, aoFechar, aoCriar, tipoFixo 
             rotulo="Tipo de reserva"
             valor={tipo}
             aoMudar={trocarTipo}
-            opcoes={Object.entries(TIPOS_RESERVA).map(([valor, t]) => ({ valor, label: t.label }))}
+            opcoes={Object.entries(TIPOS_RESERVA).filter(([valor]) => empresa.modulos[valor]).map(([valor, t]) => ({ valor, label: t.label }))}
           />
         )}
 
